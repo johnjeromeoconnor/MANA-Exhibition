@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Declaration Words & Crypto Prices</title>
+    <style>
+        body {
+            background-color: white;
+            overflow: hidden;
+            position: relative;
+            height: 100vh;
+            width: 100vw;
+        }
+        .word {
+            position: absolute;
+            font-size: 24px;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .crypto {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        const declarationWords = [
+            "When", "in", "the", "Course", "of", "human", "events", "it", "becomes", "necessary",
+            "for", "one", "people", "to", "dissolve", "the", "political", "bands", "which", "have",
+            "connected", "them", "with", "another", "and", "to", "assume", "among", "the", "powers",
+            "of", "the", "earth", "a", "separate", "and", "equal", "station", "to", "which"
+        ];
+
+        // Initial placeholder prices until we fetch real ones
+        let cryptoPrices = ["$42,000", "$51,250", "$38,900", "$45,700", "$49,300", "$39,850", "$47,120"];
+        
+        // Function to fetch current crypto prices from alternative.me API
+        async function fetchCryptoPrices() {
+            try {
+                // Using alternative.me ticker API which is more reliable and free
+                const response = await fetch('https://api.alternative.me/v2/ticker/?limit=10');
+                const data = await response.json();
+                
+                if (data && data.data) {
+                    // Extract prices for Bitcoin, Ethereum, and other top cryptocurrencies
+                    const newPrices = [];
+                    
+                    // Loop through the first 7 cryptocurrencies
+                    let count = 0;
+                    for (const id in data.data) {
+                        if (count >= 7) break; // Limit to 7 cryptocurrencies
+                        
+                        const coin = data.data[id];
+                        if (coin && coin.quotes && coin.quotes.USD && coin.quotes.USD.price) {
+                            // Format the price with dollar sign and commas
+                            const price = coin.quotes.USD.price;
+                            const formattedPrice = `${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                            newPrices.push(formattedPrice);
+                            count++;
+                        }
+                    }
+                    
+                    // Update the prices array if we got new prices
+                    if (newPrices.length > 0) {
+                        cryptoPrices = newPrices;
+                        console.log("Updated crypto prices:", cryptoPrices);
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching crypto prices:", error);
+                // Keep using the last successful prices
+            }
+        }
+
+        // Add array to keep track of active element positions
+        let activeElementPositions = [];
+
+        function showRandomWord() {
+            // Generate random position
+            let left, top;
+            let overlap = true;
+            let attempts = 0;
+            const maxAttempts = 50;
+            const padding = 50; // Minimum distance between elements
+            
+            // Try to find a non-overlapping position
+            while (overlap && attempts < maxAttempts) {
+                left = Math.random() * (window.innerWidth - 200);
+                top = Math.random() * (window.innerHeight - 50);
+                
+                // Check if this position overlaps with any active element
+                overlap = activeElementPositions.some(pos => {
+                    // Calculate distance between positions
+                    const distance = Math.sqrt(
+                        Math.pow(pos.left - left, 2) + 
+                        Math.pow(pos.top - top, 2)
+                    );
+                    // Return true if elements would overlap
+                    return distance < padding;
+                });
+                
+                attempts++;
+            }
+            
+            // Create a new word element
+            const word = document.createElement("div");
+            word.classList.add("word");
+            word.textContent = declarationWords[Math.floor(Math.random() * declarationWords.length)];
+            document.body.appendChild(word);
+
+            // Apply position
+            word.style.left = left + "px";
+            word.style.top = top + "px";
+            
+            // Add position to active elements
+            const positionId = activeElementPositions.length;
+            activeElementPositions.push({ left, top, id: positionId });
+
+            // Switch to crypto price after 4 seconds
+            setTimeout(() => {
+                word.classList.add("crypto");
+                word.textContent = cryptoPrices[Math.floor(Math.random() * cryptoPrices.length)];
+            }, 4000);
+
+            // Remove element after 8 seconds
+            setTimeout(() => {
+                word.remove();
+                // Remove position from active elements
+                activeElementPositions = activeElementPositions.filter(pos => pos.id !== positionId);
+            }, 8000);
+        }
+
+        // Fetch crypto prices immediately on page load
+        fetchCryptoPrices();
+        
+        // Set up interval to fetch new prices every 10 minutes (600,000ms)
+        // This reduces API calls and is fine since you're okay with prices being up to 10 minutes old
+        setInterval(fetchCryptoPrices, 600000);
+        
+        // Start showing words
+        setInterval(showRandomWord, 800);
+    </script>
+</body>
+</html>
