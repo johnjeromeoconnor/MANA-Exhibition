@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Simulation - Transparent Gauge & Reverted Colors</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            overflow: hidden;
+        }
+        #diagram {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background-color: #FFF8E7;
+            opacity: 0.95; 
+        }
+        .node {
+            fill: var(--baseColor, #d35400); /* Fallback color */
+            stroke: #333;
+            stroke-width: 1.5px;
+            cursor: pointer;
+        }
+        .node.blink {
+            animation: blink-animation 0.5s infinite alternate; 
+            filter: url(#glow); 
+        }
+        @keyframes blink-animation { 
+            0% { fill: var(--baseColor, #3498db); }
+            100% { fill: var(--blinkColor, #d35400); }
+        }
+        .link {
+            stroke: #7f8c8d;
+            stroke-width: 1.5px;
+        }
+        text {
+            font-size: 8px;
+            text-anchor: middle;
+            fill: #2c3e50;
+        }
+        #formula, #transactionData, #gaugeLabel, #randomnessGauge {
+            position: absolute;
+            background: rgba(255,255,255,0.8);
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            z-index: 10;
+            color: #444;
+        }
+        #formula { bottom: 10px; left: 10px; font-size: 14px; }
+        #transactionData { top: 10px; right: 10px; font-size: 14px; font-family: 'Courier New', Courier, monospace; padding: 5px 10px; }
+        #gaugeLabel { bottom: 95px; right: 10px; width: 80px; text-align: center; font-size: 12px; font-weight: bold; color: black; border: none; background: transparent; }
+        #randomnessGauge { 
+            bottom: 10px; 
+            right: 10px; 
+            width: 80px; 
+            height: 80px; 
+            padding: 0; 
+            transition: background-color 0.5s ease-in-out; 
+            opacity: 0.85; /* Added transparency to the gauge */
+        }
+        #randomnessGauge svg { width: 100%; height: 100%; }
+        .gauge-circle { fill: none; stroke: black; stroke-width: 1; opacity: 0.5; }
+        .gauge-tick { font-size: 6px; fill: black; text-anchor: middle; }
+
+        /* Styles for sentiment indicator */
+        #sentimentIndicator {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 5px;
+            background: rgba(255,255,255,0.8);
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #sentimentShape {
+            width: 30px;
+            height: 30px;
+            border: 2px solid black;
+            background-color: transparent; 
+            margin-bottom: 3px;
+            animation: continuousMorph 12s ease-in-out infinite alternate;
+        }
+        #sentimentText {
+            font-size: 10px;
+            color: #333;
+            text-align: center;
+        }
+
+        @keyframes continuousMorph {
+            0% { border-radius: 38% 62% 63% 37% / 41% 44% 56% 59%; } 
+            20% { border-radius: 50%; } 
+            40% { border-radius: 41% 59% 30% 70% / 66% 37% 63% 34%; } 
+            60% { border-radius: 0px; } 
+            80% { border-radius: 60% 40% 70% 30% / 30% 70% 40% 60%; } 
+            100% { border-radius: 38% 62% 63% 37% / 41% 44% 56% 59%; } 
+        }
+
+    </style>
+</head>
+<body>
+    <div id="sentimentIndicator">
+        <div id="sentimentShape"></div>
+        <div id="sentimentText">neutral</div>
+    </div>
+
+    <div id="formula">Calculating...</div>
+    <div id="transactionData">Gathering Real Time Transaction Data: 0 TX</div>
+    <div id="gaugeLabel">Randomness Factor</div>
+    <div id="randomnessGauge">
+        <svg viewBox="0 0 200 200">
+            <circle cx="100" cy="100" r="80" class="gauge-circle"></circle>
+            <polygon id="randomnessArrow" points="95,100 105,100 100,20" fill="black"></polygon>
+        </svg>
+    </div>
+
+    <svg id="diagram">
+        <defs>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feMorphology operator="dilate" radius="5" in="SourceAlpha" result="dilatedAlpha"/>
+                <feFlood flood-color="white" flood-opacity="0.85" result="glowColor"/> 
+                <feComposite in="glowColor" in2="dilatedAlpha" operator="in" result="whiteDilatedShape"/>
+                <feGaussianBlur in="whiteDilatedShape" stdDeviation="7" result="blurredWhiteAura"/>
+                <feMerge>
+                    <feMergeNode in="blurredWhiteAura"/> 
+                    <feMergeNode in="SourceGraphic"/>   
+                </feMerge>
+            </filter>
+        </defs>
+    </svg>
+
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script>
+        console.log("Script starting...");
+
+        let audioContext;
+        let audioContextInitializedByUser = false; 
+        let updateTimeoutId = null; 
+
+        const categoryColors = {
+            crypto: "#8e44ad", business: "#27ae60", political: "#e67e22",
+            corporation: "#16a085", bank: "#5dade2", country: "#c0392b", // Lighter blue for bank
+            celebrity: "#d35400", media: "#8e44ad", staples: "#85c1e9"       
+        };
+        const categoryBlinkColors = {
+            crypto: "#f1c40f", business: "#c0392b", political: "#2ecc71",
+            corporation: "#1abc9c", bank: "#a9d6e5", country: "#e74c3c", // Lighter blue for bank blink
+            celebrity: "#f39c12", media: "#9b59b6", staples: "#aed6f1"       
+        };
+
+        const sentimentShapeElement = document.getElementById("sentimentShape");
+        const sentimentTextElement = document.getElementById("sentimentText");
+
+        function initAudio() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log("AUDIO_DEBUG: AudioContext created. Initial state:", audioContext.state);
+                } catch (e) {
+                    console.error("AUDIO_DEBUG: Web Audio API could not be initialized.", e);
+                    audioContext = null; 
+                }
+            }
+            return audioContext;
+        }
+
+        async function resumeAudioContext() {
+            if (!audioContext) {
+                initAudio(); 
+                if (!audioContext) { 
+                    console.error("AUDIO_DEBUG: resumeAudioContext - Failed to create AudioContext during resume attempt.");
+                    return false; 
+                }
+            }
+            if (audioContext.state === 'suspended') {
+                try {
+                    console.log("AUDIO_DEBUG: Attempting to resume suspended AudioContext...");
+                    await audioContext.resume();
+                    console.log("AUDIO_DEBUG: AudioContext resumed by resumeAudioContext. New state:", audioContext.state);
+                } catch (e) {
+                    console.error("AUDIO_DEBUG: Error resuming AudioContext:", e);
+                    return false; 
+                }
+            }
+            if (audioContext.state === 'running') {
+                console.log("AUDIO_DEBUG: resumeAudioContext - Context is now RUNNING.");
+                audioContextInitializedByUser = true; 
+                return true;
+            } else {
+                console.warn("AUDIO_DEBUG: resumeAudioContext - Context is NOT running after attempt. State:", audioContext.state);
+            }
+            return false;
+        }
+
+        function handleUserInteractionForAudio() {
+            console.log("AUDIO_DEBUG: User interaction detected (handleUserInteractionForAudio).");
+            if (!audioContextInitializedByUser || (audioContext && audioContext.state !== 'running')) {
+                 resumeAudioContext();
+            } else if (audioContext && audioContext.state === 'running' && !audioContextInitializedByUser) {
+                audioContextInitializedByUser = true;
+                console.log("AUDIO_DEBUG: Audio was already running, flagged user interaction.")
+            } else {
+                console.log("AUDIO_DEBUG: Audio already initialized and running by user.");
+            }
+        }
+        
+        function playSynthesizedSound() {
+            if (!audioContextInitializedByUser && audioContext && audioContext.state === 'suspended') {
+                console.warn("AUDIO_DEBUG: playSynthesizedSound - Skipped: User interaction still needed (context suspended).");
+                return;
+            }
+            if (!audioContext || audioContext.state !== 'running') {
+                return;
+            }
+            try {
+                const now = audioContext.currentTime;
+                const soundType = Math.floor(Math.random() * 4); 
+                let mainOutputGain = audioContext.createGain(); 
+                mainOutputGain.connect(audioContext.destination);
+
+                if (soundType === 0) { // Kick-like sound
+                    const osc = audioContext.createOscillator(); const gain = audioContext.createGain();
+                    osc.connect(gain); gain.connect(mainOutputGain);
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(120 + Math.random() * 30, now); 
+                    osc.frequency.exponentialRampToValueAtTime(40 + Math.random() * 20, now + 0.05 + Math.random() * 0.02); 
+                    gain.gain.setValueAtTime(0.8, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2 + Math.random() * 0.05); 
+                    osc.start(now); osc.stop(now + 0.25);
+                } else if (soundType === 1) { // Snare/Hat-like sound
+                    const bufferSize = audioContext.sampleRate * (0.05 + Math.random() * 0.05); 
+                    const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                    const output = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) { output[i] = Math.random() * 2 - 1; }
+                    const noiseSource = audioContext.createBufferSource(); noiseSource.buffer = noiseBuffer;
+                    const filter = audioContext.createBiquadFilter(); filter.type = Math.random() < 0.5 ? 'bandpass' : 'highpass'; 
+                    filter.frequency.setValueAtTime(1500 + Math.random() * 3000, now); filter.Q.setValueAtTime(3 + Math.random() * 12, now);
+                    const gain = audioContext.createGain();
+                    noiseSource.connect(filter); filter.connect(gain); gain.connect(mainOutputGain);
+                    gain.gain.setValueAtTime(0.25 + Math.random() * 0.15, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06 + Math.random() * 0.04); 
+                    noiseSource.start(now); noiseSource.stop(now + 0.15);
+                } else if (soundType === 2) { // Melodic/Piano/String-like sustained sound
+                    const baseRootFrequencies = [ 65.41, 73.42, 82.41, 87.31, 98.00, 110.00, 123.47, 130.81, 146.83, 164.81, 174.61, 196.00 ]; 
+                    const scaleRatios = [1, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8, 2]; 
+                    let rootFreq = baseRootFrequencies[Math.floor(Math.random() * baseRootFrequencies.length)];
+                    const octaveShift = Math.floor(Math.random() * 4) - 2; rootFreq *= Math.pow(2, octaveShift);
+                    if (rootFreq < 40) rootFreq *=2; if (rootFreq > 1000) rootFreq /=2; 
+                    const ratio = scaleRatios[Math.floor(Math.random() * scaleRatios.length)]; const fundamental = rootFreq * ratio;
+                    const attackTime = 0.02 + Math.random() * 0.08; const decayTime = 0.2 + Math.random() * 0.3;
+                    const sustainLevel = 0.5 + Math.random() * 0.25; const sustainDuration = 2.0 + Math.random() * 2.5; 
+                    const releaseTime = 1.5 + Math.random() * 2.0; const totalDuration = attackTime + decayTime + sustainDuration + releaseTime;
+                    const overallGainValue = 0.15 + Math.random() * 0.1; 
+                    const osc1 = audioContext.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.setValueAtTime(fundamental, now);
+                    const osc2 = audioContext.createOscillator(); osc2.type = 'triangle'; 
+                    osc2.frequency.setValueAtTime(fundamental * (Math.random() < 0.5 ? 0.501 : 1.005) , now); 
+                    osc2.detune.setValueAtTime(Math.random() * 8 - 4, now); 
+                    const vibratoLFO = audioContext.createOscillator(); vibratoLFO.frequency.setValueAtTime(4 + Math.random() * 3, now); 
+                    const vibratoAmount = audioContext.createGain(); vibratoAmount.gain.setValueAtTime(Math.random() < 0.7 ? (3 + Math.random() * 7) : 0, now); 
+                    vibratoLFO.connect(vibratoAmount); vibratoAmount.connect(osc1.detune); vibratoAmount.connect(osc2.detune); 
+                    const gainOsc1 = audioContext.createGain(); gainOsc1.gain.value = 0.6; 
+                    const gainOsc2 = audioContext.createGain(); gainOsc2.gain.value = 0.4; 
+                    const adsrGain = audioContext.createGain(); adsrGain.gain.setValueAtTime(0, now);
+                    adsrGain.gain.linearRampToValueAtTime(overallGainValue, now + attackTime); 
+                    adsrGain.gain.linearRampToValueAtTime(overallGainValue * sustainLevel, now + attackTime + decayTime); 
+                    adsrGain.gain.setValueAtTime(overallGainValue * sustainLevel, now + attackTime + decayTime + sustainDuration);
+                    adsrGain.gain.linearRampToValueAtTime(0.00001, now + totalDuration); 
+                    const filterNode = audioContext.createBiquadFilter(); filterNode.type = "lowpass";
+                    filterNode.frequency.setValueAtTime(1200 + Math.random() * 2800, now); filterNode.Q.setValueAtTime(0.6 + Math.random() * 0.6, now);
+                    if (Math.random() < 0.5) { filterNode.frequency.linearRampToValueAtTime(500 + Math.random() * 1000, now + totalDuration * (0.6 + Math.random()*0.3) );}
+                    osc1.connect(gainOsc1); osc2.connect(gainOsc2); gainOsc1.connect(adsrGain); gainOsc2.connect(adsrGain);
+                    adsrGain.connect(filterNode); filterNode.connect(mainOutputGain);
+                    vibratoLFO.start(now); osc1.start(now); osc2.start(now);
+                    const stopTime = now + totalDuration + 0.15; 
+                    vibratoLFO.stop(stopTime); osc1.stop(stopTime); osc2.stop(stopTime);
+                } else { // soundType === 3: Tuba-like sound
+                    const baseTubaFrequencies = [43.65, 49.00, 55.00, 58.27, 65.41]; 
+                    let fundamental = baseTubaFrequencies[Math.floor(Math.random() * baseTubaFrequencies.length)];
+                    if (Math.random() < 0.3) fundamental *= 0.5; if (fundamental < 30) fundamental = 30; 
+                    const attackTime = 0.05 + Math.random() * 0.1; const decayTime = 0.1 + Math.random() * 0.2;
+                    const sustainLevel = 0.6 + Math.random() * 0.2; const sustainDuration = 1.8 + Math.random() * 2.2; 
+                    const releaseTime = 1.2 + Math.random() * 1.8; const totalDuration = attackTime + decayTime + sustainDuration + releaseTime;
+                    const overallGainValue = 0.3 + Math.random() * 0.15;
+                    const osc1 = audioContext.createOscillator(); osc1.type = 'sine'; osc1.frequency.setValueAtTime(fundamental, now);
+                    const osc2 = audioContext.createOscillator(); osc2.type = 'square'; osc2.frequency.setValueAtTime(fundamental * 2, now); 
+                    const breathLFO = audioContext.createOscillator(); breathLFO.frequency.setValueAtTime(0.5 + Math.random() * 1, now); 
+                    const breathLFOAmount = audioContext.createGain(); breathLFOAmount.gain.setValueAtTime(1 + Math.random() * 2, now); 
+                    breathLFO.connect(breathLFOAmount); breathLFOAmount.connect(osc1.detune);
+                    const gainOsc1 = audioContext.createGain(); gainOsc1.gain.value = 0.7;
+                    const gainOsc2 = audioContext.createGain(); gainOsc2.gain.value = 0.15; 
+                    const adsrGain = audioContext.createGain(); adsrGain.gain.setValueAtTime(0, now);
+                    adsrGain.gain.linearRampToValueAtTime(overallGainValue, now + attackTime);
+                    adsrGain.gain.linearRampToValueAtTime(overallGainValue * sustainLevel, now + attackTime + decayTime);
+                    adsrGain.gain.setValueAtTime(overallGainValue * sustainLevel, now + attackTime + decayTime + sustainDuration);
+                    adsrGain.gain.linearRampToValueAtTime(0.00001, now + totalDuration);
+                    const filterNode = audioContext.createBiquadFilter(); filterNode.type = 'lowpass';
+                    filterNode.frequency.setValueAtTime(300 + Math.random() * 300, now); filterNode.Q.setValueAtTime(0.7 + Math.random() * 0.5, now);
+                    osc1.connect(gainOsc1); osc2.connect(gainOsc2); gainOsc1.connect(adsrGain); gainOsc2.connect(adsrGain);
+                    adsrGain.connect(filterNode); filterNode.connect(mainOutputGain);
+                    breathLFO.start(now); osc1.start(now); osc2.start(now);
+                    const stopTime = now + totalDuration + 0.1;
+                    breathLFO.stop(stopTime); osc1.stop(stopTime); osc2.stop(stopTime);
+                }
+            } catch (error) {
+                console.error("AUDIO_DEBUG: Error playing synthesized sound:", error);
+            }
+        }
+
+        console.log("D3 and simulation setup starting...");
+        const svg = d3.select("#diagram");
+        if (svg.empty()) { console.error("#diagram SVG element not found!"); throw new Error("#diagram SVG element not found!"); }
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const formulaElement = document.getElementById("formula");
+        let cycleCount = 0;
+        const maxCycles = 20;
+        
+        const data = { 
+            nodes: [
+                { id: 'Bitcoin', group: 'crypto', isBlinking: false }, { id: 'Ethereum', group: 'crypto', isBlinking: false }, 
+                { id: 'XRP', group: 'crypto', isBlinking: false }, { id: 'Litecoin', group: 'crypto', isBlinking: false },
+                { id: 'Tether', group: 'crypto', isBlinking: false }, { id: 'Dogecoin', group: 'crypto', isBlinking: false },
+                { id: 'Binance Coin', group: 'crypto', isBlinking: false }, { id: 'TrumpCoin', group: 'crypto', isBlinking: false },
+                { id: 'FTX', group: 'crypto', isBlinking: false }, { id: 'PayPal', group: 'business', isBlinking: false },
+                { id: 'Coinbase', group: 'business', isBlinking: false }, { id: 'Tesla', group: 'business', isBlinking: false },
+                { id: 'Amazon', group: 'corporation', isBlinking: false }, { id: 'Walmart', group: 'corporation', isBlinking: false },
+                { id: 'ExxonMobil', group: 'corporation', isBlinking: false }, { id: 'Facebook', group: 'corporation', isBlinking: false },
+                { id: 'Goldman Sachs', group: 'corporation', isBlinking: false }, { id: 'Wells Fargo', group: 'bank', isBlinking: false },
+                { id: 'JPMorgan', group: 'bank', isBlinking: false }, { id: 'Bank of America', group: 'bank', isBlinking: false },
+                { id: 'Russia', group: 'country', isBlinking: false }, { id: 'China', group: 'country', isBlinking: false },
+                { id: 'Saudi Arabia', group: 'country', isBlinking: false }, { id: 'Brazil', group: 'country', isBlinking: false },
+                { id: 'United States', group: 'country', isBlinking: false }, { id: 'Elon Musk', group: 'celebrity', isBlinking: false },
+                { id: 'Joe Rogan', group: 'celebrity', isBlinking: false }, { id: 'Logan Paul', group: 'celebrity', isBlinking: false },
+                { id: 'Tom Brady', group: 'celebrity', isBlinking: false }, { id: 'Donald Trump', group: 'political', isBlinking: false },
+                { id: 'Steve Bannon', group: 'political', isBlinking: false }, { id: 'Pete Hegseth', group: 'political', isBlinking: false },
+                { id: 'JD Vance', group: 'political', isBlinking: false }, { id: 'Kash Patel', group: 'political', isBlinking: false }, 
+                { id: 'Jeanine Pirro', group: 'political', isBlinking: false }, { id: 'Roger Stone', group: 'political', isBlinking: false },
+                { id: 'Pam Bondi', group: 'political', isBlinking: false }, { id: 'One America', group: 'media', isBlinking: false },
+                { id: 'Sinclair Media', group: 'media', isBlinking: false }
+            ], links: []
+        };
+
+        const simulation = d3.forceSimulation(data.nodes)
+            .force("link", d3.forceLink(data.links).id(d => d.id).distance(100))
+            .force("charge", d3.forceManyBody().strength(-300))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+        let link = svg.append("g").attr("class", "links").selectAll("line");
+        let node = svg.append("g").attr("class", "nodes").selectAll("circle");
+        let label = svg.append("g").attr("class", "labels").selectAll("text");
+
+        function updateSimulationElements() { 
+            node = node.data(data.nodes, d => d.id)
+                .join("circle")
+                .attr("class", d => d.isBlinking ? "node blink" : "node") 
+                .attr("r", 7)
+                .style("--baseColor", d => categoryColors[d.group] || "#777777") 
+                .style("--blinkColor", d => categoryBlinkColors[d.group] || "#CCCCCC"); 
+            node.filter(d => d.id === "WLF Coin").attr("r", 10); 
+            label = label.data(data.nodes, d => d.id).join("text")
+                .text(d => d.id) 
+                .attr("fill", "#2c3e50");
+            link = link.data(data.links, d => `${d.source.id}-${d.target.id}`).join("line").attr("class", "link");
+            simulation.nodes(data.nodes); 
+            const linkForce = simulation.force("link"); if (linkForce) linkForce.links(data.links);
+            simulation.alpha(0.3).restart();
+        }
+        simulation.on("tick", () => { 
+            if(link && link.attr){ link.attr("x1",d=>d.source?.x||0).attr("y1",d=>d.source?.y||0).attr("x2",d=>d.target?.x||0).attr("y2",d=>d.target?.y||0); }
+            if(node && node.attr){ node.attr("cx",d=>d.x=Math.max(10,Math.min(width-10,d.x))).attr("cy",d=>d.y=Math.max(10,Math.min(height-10,d.y))); }
+            if(label && label.attr){ label.attr("x",d=>d.x).attr("y",d=>d.y-10); }
+        });
+
+        function scheduleNextUpdate() {
+            if (updateTimeoutId) {
+                clearTimeout(updateTimeoutId);
+            }
+            const randomInterval = Math.random() * (15000 - 3000) + 3000; 
+            updateTimeoutId = setTimeout(() => {
+                updateNodesAndLinks();
+            }, randomInterval);
+        }
+        
+        let randomnessUpdateCounter = 0; 
+        const randomnessTargetUpdateFrequency = 60; 
+
+
+        function updateNodesAndLinks() {
+            cycleCount++;
+            if (cycleCount >= maxCycles) { 
+                cycleCount = 0; 
+            }
+            
+            if (sentimentShapeElement && sentimentTextElement) {
+                const sentiments = ["positive", "negative", "neutral"];
+                sentimentTextElement.textContent = sentiments[Math.floor(Math.random() * sentiments.length)];
+            }
+
+            data.nodes.forEach(n_data => n_data.isBlinking = false);
+            const minActiveNodes = 5;
+            const maxActiveNodes = Math.min(data.nodes.length > 0 ? data.nodes.length : 15, 15); 
+            const nodesToActivateThisCycle = Math.floor(Math.random() * (maxActiveNodes - minActiveNodes + 1)) + minActiveNodes;
+
+            data.links = [];
+            const numVisualLinks = Math.floor(Math.random() * (data.nodes.length * 0.8)) + Math.min(5, data.nodes.length); 
+            for (let i = 0; i < numVisualLinks; i++) {
+                if (data.nodes.length < 2) break; 
+                const sIdx = Math.floor(Math.random()*data.nodes.length); let tIdx = Math.floor(Math.random()*data.nodes.length);
+                while(tIdx===sIdx) tIdx=Math.floor(Math.random()*data.nodes.length);
+                data.links.push({source:data.nodes[sIdx].id, target:data.nodes[tIdx].id});
+            }
+            
+            const shuffledNodesData = d3.shuffle(data.nodes.slice()); 
+            const nodesToBlinkData = shuffledNodesData.slice(0, nodesToActivateThisCycle);
+            
+            nodesToBlinkData.forEach(n_data => { 
+                n_data.isBlinking = true; 
+                setTimeout(() => playSynthesizedSound(), Math.random()*3000+500); 
+            });
+
+            if(formulaElement){
+                const earningsBase = (nodesToActivateThisCycle * Math.random() * 1000); 
+                const multiplier = parseFloat((Math.random() * 10).toFixed(2));
+                formulaElement.textContent = `Earnings = (Nodes: ${nodesToActivateThisCycle}) * $${multiplier.toFixed(2)} = $${(earningsBase * multiplier).toFixed(2)}`;
+            }
+            updateSimulationElements(); 
+            scheduleNextUpdate(); 
+        }
+
+        let currentRandomness = 12.5;
+        let targetRandomness = 12.5; 
+
+        function updateRandomness() {
+            randomnessUpdateCounter++;
+            if (randomnessUpdateCounter >= randomnessTargetUpdateFrequency) {
+                targetRandomness = Math.random() * 25; 
+                randomnessUpdateCounter = 0; 
+            }
+
+            const speed = 0.02; 
+            currentRandomness += (targetRandomness - currentRandomness) * speed;
+            currentRandomness = Math.max(0, Math.min(25, currentRandomness)); 
+
+            const angle = (currentRandomness / 25) * 360 - 90; 
+            const arrow = document.getElementById("randomnessArrow");
+            if (arrow) {
+                 arrow.setAttribute("transform", `rotate(${angle},100,100)`);
+            }
+            
+            // Set gauge background color based on needle position
+            const gauge = document.getElementById("randomnessGauge");
+            if (gauge) {
+                gauge.style.backgroundColor = currentRandomness < 12.5 ? "#3498db" : "#e74c3c"; // Blue or Red
+            }
+        }
+
+        function updateTransactionData() { 
+            const vol = Math.floor(Math.random()*9e6+1e6); const el=document.getElementById("transactionData"); if(el)el.textContent="Gathering Real Time Transaction Data: "+vol.toLocaleString()+" TX";
+        }
+        function addGaugeTicks() { 
+            const svgG = document.querySelector("#randomnessGauge svg"); if(!svgG){console.error("AUDIO_DEBUG: #randomnessGauge svg not found for ticks.");return;}
+            svgG.querySelectorAll('.gauge-tick').forEach(t=>t.remove()); const cx=100,cy=100,r=80,off=10; const vals=[0,6.25,12.5,18.75,25];
+            vals.forEach(v=>{ const angD=(v/25)*360-90;const angR=angD*(Math.PI/180);const x=cx+(r+off)*Math.cos(angR);const y=cy+(r+off)*Math.sin(angR);
+            const tk=document.createElementNS("http://www.w3.org/2000/svg","text");tk.setAttribute("x",String(x));tk.setAttribute("y",String(y+2));tk.setAttribute("class","gauge-tick");tk.textContent=v.toString();svgG.appendChild(tk);});
+        }
+
+        console.log("DOM Content Loaded event listener setup...");
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log("DOMContentLoaded event fired.");
+            try {
+                addGaugeTicks(); 
+                updateSimulationElements(); 
+
+                if (initAudio()) { 
+                    await resumeAudioContext(); 
+                    if(audioContext && audioContext.state !== 'running'){ 
+                         console.log("IMPORTANT: AudioContext is suspended. Click the page or press a key to enable sound.");
+                    } else if (audioContext && audioContext.state === 'running') {
+                        console.log("AUDIO_DEBUG: AudioContext is running on load (or resumed automatically).");
+                    }
+                } else {
+                    console.error("AUDIO_DEBUG: AudioContext could not be initialized on page load. Sounds will not play.");
+                }
+
+                document.addEventListener('click', handleUserInteractionForAudio, { once: true });
+                document.addEventListener('keydown', handleUserInteractionForAudio, { once: true });
+            
+                updateNodesAndLinks(); 
+            
+                setInterval(updateTransactionData, 1000);
+                setInterval(updateRandomness, 100); 
+
+            } catch (error) {
+                console.error("Error during DOMContentLoaded setup:", error);
+            }
+            console.log("DOMContentLoaded setup complete.");
+        });
+
+        console.log("Script finished parsing.");
+    </script>
+</body>
+</html>
