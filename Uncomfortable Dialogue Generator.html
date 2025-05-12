@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Simulation - Evolving Colors & Sounds</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f0f0f0; /* Initial, will be overridden by JS */
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      transition: background-color 1.5s linear; /* Smooth background transition for body */
+    }
+    #chat {
+      display: flex;
+      flex-direction: column;
+      width: 90%;
+      max-width: 600px;
+      margin: 20px auto;
+      height: calc(100vh - 40px);
+      max-height: 90vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+      background-color: rgba(128, 128, 128, 0.1); /* Fixed semi-transparent neutral grey */
+      border-radius: 10px;
+      padding: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      position: relative;
+      cursor: pointer; /* Indicate chat area is clickable for mute toggle */
+    }
+    .bubble {
+      max-width: 70%;
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      border-radius: 15px;
+      position: relative; /* Added for reaction icon positioning */
+      animation: fadeIn 0.5s ease-out;
+      white-space: pre-wrap;
+      line-height: 1.4;
+      word-wrap: break-word;
+      font-size: 0.95em;
+      color: #333333;
+      transition: background-color 0.5s ease, color 0.5s ease;
+    }
+    .visually-left {
+      align-self: flex-start;
+      margin-right: auto;
+      margin-left: 0;
+    }
+    .visually-right {
+      align-self: flex-end;
+      margin-left: auto;
+      margin-right: 0;
+    }
+    .thinking {
+      font-style: italic;
+      color: #555555; /* Initial, will adapt to body bg */
+      transition: color 0.5s ease;
+    }
+    .reaction-bubble { /* This is for the separate emoji-only response bubbles */
+        font-size: 1.5em;
+        padding: 8px 12px;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        animation: popIn 0.3s ease-out;
+    }
+    .message-reaction-icon { /* For icons ON a message bubble */
+        position: absolute;
+        font-size: 0.75em; /* Smaller than bubble text */
+        background-color: rgba(220, 220, 220, 0.9); /* Light, semi-transparent background */
+        color: #333; /* Default dark text for light background */
+        padding: 2px 5px;
+        border-radius: 8px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+        z-index: 5; 
+        opacity: 0;
+        transform: scale(0.3) translate(-50%, 50%); /* Start small and offset */
+        animation: reactionPopIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; /* Springy pop */
+        bottom: -6px; /* Position at the bottom edge */
+    }
+    .visually-left .message-reaction-icon {
+        right: -8px; /* On the right for left-aligned bubbles */
+        transform-origin: bottom right;
+    }
+    .visually-right .message-reaction-icon {
+        left: -8px; /* On the left for right-aligned bubbles */
+        transform-origin: bottom left;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes popIn { /* For reaction-bubble (separate emoji) */
+      from { opacity: 0; transform: scale(0.5); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes reactionPopIn { /* For message-reaction-icon (on bubble) */
+      0% { opacity: 0; transform: scale(0.3) ; }
+      70% { opacity: 1; transform: scale(1.1); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    #chat::-webkit-scrollbar {
+        width: 8px;
+    }
+    #chat::-webkit-scrollbar-track {
+        background: rgba(128, 128, 128, 0.05);
+        border-radius: 10px;
+    }
+    #chat::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+        transition: background-color 0.5s ease;
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="chat">
+      </div>
+  <script>
+    // --- CONFIGURATION ---
+    const MAX_MESSAGES = 350;
+    const CHANCE_OF_EMOJI_IN_MESSAGE = 0.15;
+    const CHANCE_OF_REACTION_BUBBLE = 0.25; 
+    const CHANCE_OF_MESSAGE_REACTION = 0.30; 
+    const CHANCE_OF_QUIRKY_MESSAGE = 0.20;
+
+    const HUE_INCREMENT = 45;
+    const MAX_INTENSITY_STEPS = 6;
+    const BASE_SATURATION = 70;
+    const MAX_SATURATION_MODIFIER = 25;
+    const BASE_BUBBLE_LIGHTNESS = 85;
+    const MAX_BUBBLE_LIGHTNESS_MODIFIER = 35;
+
+    // --- MESSAGE CONTENT ---
+    const quirkyMessages = [
+      "Do you like... cheese?", "Did you know the sky is actually green, but our eyes see it as blue?", "What's your favorite kind of cloud?",
+      "I heard that 2 + 2 equals fish. Makes you think, doesn't it?", "Ever wonder if rocks have feelings?", "They say if you stare at a wall long enough, it'll tell you secrets.",
+      "My cat told me the moon is made of spare buttons.", "Is water really wet, or are we just conditioned to believe that?", "Pigeons are government drones, obviously.",
+      "So, uh, potatoes?", "Did you know that trees actually walk around when no one is looking?", "What if shoes are just really patient feet hats?",
+      "I read that the number 7 is actually a government conspiracy.", "Do you think clouds get bored?", "It's a well-known fact that gravity is just a suggestion.",
+      "My goldfish is a renowned philosopher, you know.", "Is time even real, or is it just, like, a feeling?", "Squirrels are planning something. I can feel it."
+    ];
+    const leftMessages = [
+      "I heard you're funding extremist political groups. Is that how you plan to 'unite' us?", "Your record on factual integrity is, uh, let's just say 'creatively interpreted'.",
+      "Everyone knows your policies are a thinly veiled attempt to benefit your corporate cronies, right?", "You claim to stand for justice, but your actions seem to only fuel more division and anger.",
+      "Denying established facts isn't just wrong, it's, uh, actively dangerous for everyone.", "Rumor has it you colluded with foreign entities. Care to comment, or just more deflections?",
+      "Your 'evidence'? Looks more like, um, carefully selected data points to me.", "How can you accuse *me* when your own track record is, well, a masterclass in hypocrisy?",
+      "You're spreading misinformation like wildfire, and it's, like, seriously threatening our society's fabric.", "Your alliances... they seem more like a pact for mutual destruction than progress.",
+      "It's painfully clear you’re willing to sacrifice our country’s future for, um, short-term personal gain.", "Your speeches are full of empty promises that, uh, inevitably lead to more chaos and disappointment.",
+      "I heard you manipulated data – wait, no, 'recontextualized' it – to cover up policy failures.", "You're the one steering us directly toward a political meltdown, if you ask anyone with eyes open.",
+      "Your leadership has consistently been a, err, recipe for unmitigated disaster.", "Every statement you make feels like a deliberate distortion of reality, honestly.",
+      "Your backroom deals? They're a stain on our national honor, no doubt about it.", "I know your secrets... and, well, they’d make your whole facade crumble in an instant.",
+      "Your betrayal of public trust is, um, reaching legendary status. And not in a good way.", "I've seen your financial records – they're... illuminating, to say the least. Scandalous, really.",
+      "Your policy maneuvers aren't just bad, they're bordering on treachery – seriously.", "The media is finally uncovering evidence of your manipulation... it's quite the show.",
+      "You are, like, the puppet master behind this hidden agenda against the people you claim to serve.", "Every move you make seems calculated for maximum chaos... honestly, it's impressive in a terrifying way.",
+      "Your so-called 'reforms' are just a smokescreen for deeper corruption, I swear.", "I have reliable sources that confirm your dishonesty. No joke. Want to see the receipts?",
+      "Your rhetoric is, uh, as dangerous as your actions – a truly toxic combination.", "You exploit every single chance to mislead the public, and it's, well, utterly infuriating.",
+      "It's obvious you’re playing a dangerous game, and our nation’s future is the unwilling casino chip.", "I mean, you think you're a genius? You're nothing but a, uh, particularly arrogant, lying, cheating prick.",
+      "Your policies are as worthless as your, sorry... no, not sorry... your excuse for a moral compass.", "Honestly, you're a total asshole with a, uh, remarkable talent for creating widespread disaster.",
+      "I don't even know how you sleep at night knowing you're, like, such a profoundly corrupt bastard.", "You're a joke – and your pathetic excuses are as useless as, um, your attempts at sincerity.",
+      "Um... seriously?", "Okay, but why?", "Yeah... if you say so.", "Really? What are you even trying to say with that?", "Are you being serious right now? Because it's hard to tell.",
+      "What are you talking about, honestly? It's like word salad.", "Why do you constantly twist things? It's exhausting.", "What's your favorite color? Just trying to find some common ground in this madness.",
+      "Everyone knows that no army has ever successfully invaded a truly united and free nation.", "Everyone knows that facts don't lie – history will be the ultimate judge, trust me on that.",
+      "Everyone knows our nation's spirit is, like, fundamentally unbreakable when tested.", "Everyone knows that truth always, um, eventually prevails over even the most elaborate deception.",
+      "That's a classic straw man fallacy—you're misrepresenting my argument to make it easier to attack, really.", "You're clearly committing an ad hominem by attacking my character instead of addressing the actual issue.",
+      "That false dilemma you're pushing is ridiculous; there are always more than just two options.", "Your slippery slope argument is baseless; one step doesn't automatically lead to the apocalypse you're painting.",
+      "Stop with the circular reasoning—your argument is just chasing its own tail and going nowhere.", "If you keep pushing this narrative, you'll soon face the inevitable consequences.",
+      "Watch your back—I won't let your lies and manipulations go unpunished, understand?", "Cross me again, and you'll regret every single syllable you've uttered.",
+      "Keep testing my patience, and I promise you'll wish you never even knew my name.", "I'm coming for you—this isn't over, not by a long shot. Ever.",
+      "Huh? What does that even mean in this context?", "Why would you say that? What's the logic?", "How does that make any sense at all? Explain it.",
+      "Seriously, what are you on about now? I'm lost.", "I'm not following your 'reasoning'. At all.", "Can you, like, try to be a little clearer? Or is obfuscation the point?",
+      "That's just... what? Gibberish?", "Are you just making things up as you go along now? It feels like it.", "Could you be more vague? I don't think so.", "Is there a point to what you're saying, or...?",
+      "Mission launch? What mission?", "F-18s? What's happening?!", "Trigger based? Are you serious?", "Drones on target? Bombs dropping? This is insane!", "Tomahawks now? What is going on?!",
+      "OPSEC clean? I highly doubt that with you blabbing here.", "Godspeed? More like good luck explaining this.", "Girlfriend's building collapsed? That's... a lot.", "Kudos? For what exactly?",
+      "Concerns with POTUS? What concerns?", "Economy, Ukraine, Gaza... yeah, 'tough to know'. Understatement.", "Messaging is tough? You think?", "Nobody knows who the Houthis are? Maybe educate them instead of... this!",
+      "Biden failed, Iran funded? That's your takeaway?", "Calculus doesn't change? Are you sure?", "Leaks? Someone else acts first? So much for 'our own terms'.", "Manage both? How?",
+      "You'd vote GO? On what grounds?!", "Not about Houthis? Then what IS it about?", "Freedom of Navigation? Deterrence? Sounds like excuses.", "Easily pause? Then why not?",
+      "Enforce OPSEC? Starting when?", "Other thoughts? Yeah, I have a few, starting with 'STOP'.", "Economic gain? After all this? Unbelievable.",
+      "He keeps the jacks and the rubber ball in his attaché case. He won't let me play.", "I point out that two can derive more enjoyment from playing jacks than one, but he is not interested.",
+      "I have asked repeatedly to be allowed to play by myself, but he simply shakes his head.", "It is unfair. I am aching to get my hands on them.",
+      "We watch the console. If certain events take place, we are to insert our keys.", "He has a key and I have a key. If we turn our keys simultaneously the bird flies.",
+      "But the bird never flies. In one hundred thirty-three days the bird has not flown.", "Meanwhile, we watch each other.",
+      "If he behaves strangely I am supposed to shoot him. If I behave strangely, he is supposed to shoot me.", "We watch the console and think about shooting each other and think about the bird.",
+      "His behavior with the jacks is strange. Is it strange? I do not know.", "Perhaps he is merely a selfish bastard. Perhaps his childhood was twisted.", "How strangely is strangely? I do not know.",
+      "I have a .38 which he does not know about, concealed in my attaché case.", "My hand resting idly atop my attaché case. My hand.",
+      "In the beginning, our behavior was painfully normal. Norms of politeness, consideration...", "Then it became apparent an error had been made. Our relief was not going to arrive. Owing to an oversight.",
+      "Definitions of normality were redrawn in The Agreement.", "We eat when we are hungry and sleep when we are tired.", "One of us watches the console at all times.",
+      "Our system involves a delay of perhaps twelve seconds but I do not care because I am not well.", "After the agreement was signed, he produced the jacks and the rubber ball.",
+      "I began to write a series of descriptions of forms occurring in nature. On the walls.", "I am not well.", "The pale green reinforced concrete walls sweat.",
+      "We have been here one hundred thirty-three days owing to an oversight.", "Although now we are not sure what is oversight, what is plan.", "Perhaps the plan is for us to stay here permanently.",
+      "Perhaps the whole thing is an experiment and the experiment is very successful.", "We sleep uneasily and acrimoniously.", "I hear him shouting in his sleep, objecting, denouncing, cursing sometimes, weeping sometimes.",
+      "When he sleeps I try to pick the lock on his attaché case, so as to get at the jacks.", "I write descriptions of natural forms on the walls, scratching them on the tile surface with a diamond.",
+      "The diamond is a two and one-half carat solitaire. It was for Lucy.", "The south wall of the room containing the console is already covered. I have described a shell, a leaf, a stone, animals, a baseball bat.",
+      "I am aware that the baseball bat is not a natural form. Yet I described it.", "My description of the baseball bat ran to 4500 words.", "I am aware that he regards my writing-behaviour as strange.",
+      "Yet it is no stranger than his jacks-behaviour.", "He could not do it, I had already tried, standing over the console with my two arms outstretched, the distance is too great.",
+      "He has made certain overtures. The burden of his message is not clear. It has something to do with the keys, with the locks.", "But there must be a quid pro quo. I insist on a quid pro quo.",
+      "I do not know our target. They do not tell us for which city the bird is targeted.", "I am aching to get my hands on the ball, on the jacks.", "Sometimes I cannot sleep.",
+      "At such moments we are very close. But only if he will give me the jacks. That is fair.", "There is something he wants me to do with my key, while he does something with his key. But only if he will give me my turn.",
+      "Yep.", "Huh?", "WTF?", "lol", "Seriously?", "No way.", "Right.", "Okay...", "Sure.", "👍", "Ugh.", "Whatever."
+    ];
+    const rightMessages = [
+      "I heard you're secretly lobbying for radical reforms designed to destabilize our entire nation.", "Your so-called 'facts' are just convenient fictions you use to cover up your glaring failures.",
+      "Everyone sees right through your carefully constructed facade—your history is littered with scandals.", "You claim to represent truth, but your sources are so laughably biased and utterly unreliable.",
+      "The truth is, your disastrous policies have pushed us to the very brink of societal collapse.", "Rumor has it you actively supported extremist factions to seize power—no kidding. The whispers are loud.",
+      "Your version of events is nothing more than a self-serving narrative to mask your deep-seated corruption.", "How dare you accuse me when your own record is so riddled with hypocrisy it's practically a sieve?",
+      "You're not really interested in truth, are you? You're intent on tearing our society apart from the inside.", "Your actions are deliberately pushing us toward mutual destruction, and you don't even seem to care.",
+      "It's painfully obvious you're undermining our country for your own personal profit and power.", "Your decisions are clearly made in shadowy, secret meetings with the most dubious of characters.",
+      "I have concrete evidence that you routinely manipulate facts to suit your ever-changing agenda.", "Your public statements are just a flimsy cover for your hidden, extremist alliances.",
+      "You're methodically orchestrating a campaign of chaos and division, and it's working.", "The documents clearly show you deliberately distort the truth—seriously, it's all there in black and white.",
+      "Your leadership style isn't just ineffective; it's a direct threat to our national stability, no doubt about it.", "I hear your financial dealings are as shady and convoluted as your empty, hollow promises.",
+      "You're the chief architect of policies that systematically hurt the very people you cynically claim to serve.", "Your blatant betrayal of democratic principles is on full, undeniable display for everyone to see.",
+      "Insiders say your core strategies are designed to bring about our collective downfall—really, it's terrifying.", "Your questionable alliances with fringe groups are a guaranteed recipe for widespread disaster.",
+      "Every statement you make is just another piece of a larger, more sinister conspiracy.", "You expertly manipulate public opinion to hide your true, ulterior motives—it's your signature move, typical.",
+      "It's crystal clear your actions are meticulously calculated to maximize chaos and exploit the fallout.", "I have well-placed contacts who confirm your secretive, underhanded maneuvers—trust me on that one.",
+      "Your hidden agendas are being exposed by recent leaks, and there's no doubt more to come.", "You positively thrive on misinformation and propaganda; it's the air you breathe.",
+      "Your leadership is a reckless, dangerous experiment with our nation's future as the unwilling test subject.", "The mounting evidence suggests you're playing a high-stakes, geopolitical game with our national security.",
+      "Your entire track record is a steaming load of bull, and you, my friend, are a damn fraud.", "You wouldn't know honesty if it slapped you in the face with a wet fish—you miserable, conniving fuck.",
+      "Get your incoherent crap together, or for the love of God, just shut the hell up already.", "You're an overrated, bloviating shithead, and everyone with a brain sees right through your act—seriously.",
+      "Your political career is a raging dumpster fire, and you don't deserve an ounce of respect.", "Your positive energy is genuinely infectious and inspiring! (Said no one ever about you).",
+      "I appreciate your unique perspective; it really brightens my day (with sheer absurdity).", "Your words are a breath of fresh air in this chaos—no kidding (if fresh air smelled like a swamp).",
+      "Um... and your point is?", "Okay... if you believe that.", "Yeah, sure. Whatever.", "Really? What are you actually saying? Use smaller words.", "Could you elaborate? Or is that asking too much?",
+      "Is that supposed to be true...? Because it sounds like fantasy.", "What are you talking about, honestly? Are you feeling okay?", "Why do you lie so much? Is it a hobby?",
+      "What's your favorite color, anyway? Let's discuss something real for a change.", "Everyone knows that no army has ever outmatched the sheer power of a united and determined people.",
+      "Everyone knows that truth is etched indelibly in history and cannot be permanently denied or erased.", "Everyone knows that honor, courage, and valor are what build the strongest, most resilient armies.",
+      "Everyone knows our national legacy is written in the annals of history—for real, not in your fantasy world.", "That's an appeal to authority fallacy—just because some 'expert' says it doesn't automatically make it true.",
+      "Your red herring is a pathetic attempt to distract from the real, substantive issues at hand.", "You're peddling a hasty generalization by judging an entire diverse group based on one isolated incident.",
+      "That is a classic false cause fallacy; correlation does not, and never will, imply causation.", "Stop using a bandwagon argument—popularity doesn't equate to truth or correctness, period.",
+      "Keep it up, and you'll wish you never, ever crossed my path. Mark my words.", "You better watch your every step, or you'll face my unbridled wrath. And it won't be pretty.",
+      "If you dare continue down this path, I'll make absolutely sure you suffer the full consequences—mark my words.", "Don't test me—you have absolutely no idea what I'm truly capable of, honestly.",
+      "One more disingenuous word from you and you'll regret it profoundly—that's not a threat, it's a promise.", "What does that mean? Spell it out for me.", "Why on earth did you say that? Do you hear yourself?",
+      "Huh? Come again? Were you speaking English?", "How does that compute in any logical universe? It doesn't.", "What in the ever-loving world are you talking about now??",
+      "I'm sorry, did you just... actually say that out loud?", "Elaborate. Because that was pure, unadulterated nonsense.", "Are you even listening to the words coming out of your own mouth?",
+      "IME NOW (1144et): Weather is FAVOURABLE.", "Just CONFIRMED w/CENTCOM we are a GO for mission launch.", "1215et: F-18s LAUNCH (1st strike package).",
+      "1345: ‘Trigger Based’ F-18 1st Strike Window Starts. Target Terrorist is @ his Known Location so SHOULD BE ON TIME.", "Also, Strike Drones Launch (MQ-9s).", "1410: More F-18s LAUNCH (2nd strike package).",
+      "1415: Strike Drones on Target. THIS IS WHEN THE FIRST BOMBS WILL DEFINITELY DROP, pending earlier ‘Trigger Based’ targets.", "1536: F-18 2nd Strike Starts – also, first sea-based Tomahawks launched.",
+      "MORE TO FOLLOW (per timeline).", "We are currently clean on OPSEC.", "Godspeed to our Warriors.", "Typing too fast... The first target – their top missile guy – we had positive ID of him walking into his girlfriend’s building and it’s now collapsed.",
+      "Kudos to all – most particularly those in theater and CENTCOM! Really great. God bless.", "I understand your concerns – and fully support you raising w/ POTUS.",
+      "Important considerations, most of which are tough to know how they play out (economy, Ukraine peace, Gaza, etc).", "I think messaging is going to be tough no matter what – nobody knows who the Houthis are.",
+      "Which is why we would need to stay focused on: 1) Biden failed & 2) Iran funded.", "Waiting a few weeks or a month does not fundamentally change the calculus.",
+      "Two immediate risks on waiting: 1) this leaks, and we look indecisive.", "And 2) another party takes an action first – or Gaza cease fire falls apart – and we don’t get to start this on our own terms.",
+      "We can manage both, though.", "We are prepared to execute, and if I had final go or no go vote, I believe we should.", "This isn't about the Houthis, by the way.",
+      "I see it as two things: 1) Restoring Freedom of Navigation, a core national interest.", "And 2) Reestablish deterrence, which Biden cratered.",
+      "But, we can easily pause. And if we do, I will do all we can to enforce 100 percent OPSEC.", "I welcome other thoughts. What do you think?",
+      "If the US successfully restores freedom of navigation at great cost there needs to be some further economic gain extracted in return. Fair, right?",
+      "He plays with them, alone, chanting 'onesies, twosies, threesies, foursies'. Hour after hour.", "'Why?' he asks. 'They're mine,' I say. And back they go into the attaché case.",
+      "He is aching to get my hands on them. It is unfair, perhaps.", "He has a key and I have a key. The bird never flies.", "We watch each other. He thinks my behavior with the jacks is strange.",
+      "He has a .38. I have a .25 caliber Beretta strapped to my right calf.", "I pretend to watch his .45, but I'm watching his hand near his attaché case.", "Our behavior was painfully normal. Then, the oversight.",
+      "One hundred thirty-three days. Owing to an oversight.", "The Agreement. Norms relaxed. We eat when hungry, sleep when tired.", "He writes descriptions of natural forms on the walls. A shell, a leaf, a stone.",
+      "I am enrolled in a USAFI course. Business administration.", "The pale green walls sweat. The air conditioning is erratic.", "I read Introduction to Marketing. He thinks I am not myself.",
+      "He controls the .38 in his attaché case with one-third of his attention. Or so he thinks.", "He is not well.", "Is it oversight, or plan? Perhaps they are pleased with us.",
+      "The frozen enchiladas are damp. The devil's food cake is sour.", "He tries to pick the lock on my attaché case when I sleep. For the jacks.", "I have seen the marks on his attaché case. He wants my .38.",
+      "He writes on the walls with a diamond. It was for Lucy, he said once.", "His description of the baseball bat. 4500 words. Strange.", "He appeared in black bathing trunks. Trying to span the locks. He could not do it.",
+      "I have made certain overtures. About the keys, the locks.", "He is less affected by our situation than I. Or so it appears. Stolid.", "He bounces the rubber ball. Steady, rhythmical, conscientious.",
+      "He wants a quid pro quo. He has something in mind.", "He does not know our target. That is planning.", "He chants 'onesies, twosies, threesies, foursies'. A precise, well-modulated voice.",
+      "I cup the jacks and ball in my hands, rattle them suggestively.", "Sometimes he cannot sleep. Sometimes I cannot sleep.", "Sometimes I cradle him, or he cradles me. Singing. We are very close then.",
+      "He says, 'Only if you will give me the jacks. That is fair.'", "There is something I want him to do with his key, while I do something with mine. He says, 'Only if you give me my turn.'",
+      "Yep.", "Huh?", "WTF?", "lol", "Seriously?", "No way.", "Right.", "Okay...", "Sure.", "👍", "Ugh.", "Whatever."
+    ];
+    const unicodeReactions = ["🤔", "😂", "🙄", "🤨", "🤯", "😡", "👍", "👎", "🤷‍♂️", "🤷‍♀️", "😬", "🧐", "⁉️", "🤦", "🤡", "👀", "🤣", "🤬", "🤌", "💯", "🔥", "🫠", "💀", "💅", "🍵", "🐸"];
+    const messageReactionEmojis = ["❤️", "👍", "👎", "😂", "😮", "😢", "😠"];
+
+
+    // --- GLOBAL CHAT STATE ---
+    let messageCount = 0;
+    const chatElement = document.getElementById('chat');
+    const bodyElement = document.body;
+    let audioInitialized = false;
+    let isSoundMuted = false; // Sound mute toggle
+    
+    // --- BODY BACKGROUND STATE ---
+    let bodyBackgroundColorState = {
+        hue: 0, saturation: 60, lightness: 90,
+        satDirection: -1, lightDirection: -1
+    };
+    let currentBodyLightness = 0.9;
+
+    // --- SIDE SWAP STATE ---
+    let messagesSinceLastSwap = 0;
+    let swapThreshold = Math.floor(Math.random() * 5) + 3;
+    let currentVisualAlignmentIsNormal = true;
+
+    // --- BUBBLE COLOR STATE ---
+    const speakerColorState = {
+        left: { hue: 30, step: 0, lightness: BASE_BUBBLE_LIGHTNESS },
+        right: { hue: 210, step: 0, lightness: BASE_BUBBLE_LIGHTNESS }
+    };
+
+    // --- TONE.JS SOUNDS ---
+    const messageSounds = {
+        left: () => { 
+            const synth = new Tone.Synth({
+                oscillator: { type: "triangle" }, // Kept triangle for a slightly softer deep tone
+                envelope: { attack: 0.005, decay: 0.12, sustain: 0.05, release: 0.15 } // Adjusted envelope
+            }).toDestination();
+            synth.volume.value = -7; // Slightly louder than before, but still not overpowering
+            synth.triggerAttackRelease("A3", "16n", Tone.now()); // Lowered from A5 to A3
+        },
+        right: () => { 
+            const synth = new Tone.Synth({
+                oscillator: { type: "sine" }, // Sine is good for deep, clean tones
+                envelope: { attack: 0.01, decay: 0.18, sustain: 0.01, release: 0.2 } // Adjusted envelope
+            }).toDestination();
+            synth.volume.value = -10; // Kept it a bit quieter
+            synth.triggerAttackRelease("D2", "8n", Tone.now()); // Lowered from D4 to D2
+        }
+    };
+
+    function playMessageSoundForSender(originalSenderSide) {
+        if (isSoundMuted || !audioInitialized || Tone.context.state !== 'running') return;
+        if (messageSounds[originalSenderSide]) {
+            messageSounds[originalSenderSide]();
+        }
+    }
+
+    // --- CORE FUNCTIONS ---
+    function typeMessage(message, element, callback) {
+      let i = 0;
+      const isSlowTyper = Math.random() < 0.4;
+      function type() {
+        if (i < message.length) {
+          element.textContent += message.charAt(i);
+          i++;
+          let delay = isSlowTyper ? (70 + Math.random() * 80) : (20 + Math.random() * 50);
+          setTimeout(type, delay);
+        } else {
+          if (callback) callback();
+        }
+      }
+      type();
+    }
+
+    function maybeAddEmojiToMessage(text) {
+      const storyKeywords = ["jacks", "attaché case", "console", "bird flies", "key", ".45", ".38", "Beretta", "oversight", "The Agreement", "natural forms", "diamond", "Lucy", "baseball bat", "Shotwell", "onesies", "twosies", "enchiladas"];
+      let isStoryText = storyKeywords.some(keyword => text.includes(keyword));
+      const shortResponses = ["Yep.", "Huh?", "WTF?", "lol", "Seriously?", "No way.", "Right.", "Okay...", "Sure.", "👍", "Ugh.", "Whatever."];
+      
+      if (text.length < 15 || text.includes("et:") || text.includes("w/CENTCOM") || text.includes("OPSEC") || isStoryText || quirkyMessages.includes(text) || shortResponses.includes(text)) {
+        return text;
+      }
+      if (Math.random() < CHANCE_OF_EMOJI_IN_MESSAGE) {
+        return text + " " + unicodeReactions[Math.floor(Math.random() * unicodeReactions.length)];
+      }
+      return text;
+    }
+
+    function getBubbleColor(originalSender, isReaction = false) {
+        const state = speakerColorState[originalSender];
+        const currentStep = Number(state.step) || 0;
+        const intensityFactor = currentStep / MAX_INTENSITY_STEPS;
+        let saturation = BASE_SATURATION + (MAX_SATURATION_MODIFIER * intensityFactor);
+        let lightness = BASE_BUBBLE_LIGHTNESS - (MAX_BUBBLE_LIGHTNESS_MODIFIER * intensityFactor);
+
+        if (isReaction) { // For separate reaction bubbles
+            saturation = Math.max(40, saturation - 20);
+            lightness = Math.min(92, lightness + 12);
+        }
+        
+        state.lightness = Math.max(20, Math.min(95, lightness));
+        saturation = Math.max(30, Math.min(100, saturation));
+        return `hsl(${state.hue}, ${saturation}%, ${state.lightness}%)`;
+    }
+    
+    function setBubbleTextColor(bubbleElement, originalSender) {
+        const bubbleState = speakerColorState[originalSender];
+        bubbleElement.style.color = bubbleState.lightness < 50 ? '#f0f0f0' : '#333333';
+    }
+    
+    function cycleBodyBackgroundAndUI() {
+        let { hue, saturation, lightness, satDirection, lightDirection } = bodyBackgroundColorState;
+        hue = (hue + 0.2) % 360;
+        saturation += satDirection * 0.1;
+        if (saturation > 70 || saturation < 30) { satDirection *= -1; saturation += satDirection * 0.1; }
+        lightness += lightDirection * 0.15;
+        if (lightness > 95 || lightness < 10) { lightDirection *= -1; lightness += lightDirection * 0.15; }
+        lightness = Math.max(10, Math.min(95, lightness)); saturation = Math.max(30, Math.min(70, saturation));
+        bodyBackgroundColorState = { hue, saturation, lightness, satDirection, lightDirection };
+        bodyElement.style.backgroundColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        currentBodyLightness = lightness / 100;
+
+        const thinkingBubble = chatElement.querySelector('.thinking');
+        if (thinkingBubble) { thinkingBubble.style.color = currentBodyLightness < 0.5 ? '#dddddd' : '#555555'; }
+        const endBubble = chatElement.querySelector('.bubble.thinking[style*="text-align: center"]');
+        if (endBubble) {
+            endBubble.style.color = currentBodyLightness < 0.5 ? '#f0f0f0' : '#333333';
+            endBubble.style.backgroundColor = currentBodyLightness < 0.5 ? 'rgba(200,200,200,0.2)' : 'rgba(100,100,100,0.3)';
+        }
+
+        const styleSheet = document.styleSheets[0];
+        try {
+            for (let i = 0; i < styleSheet.cssRules.length; i++) {
+                const rule = styleSheet.cssRules[i];
+                if (rule.selectorText === '#chat::-webkit-scrollbar-thumb') {
+                    rule.style.backgroundColor = currentBodyLightness < 0.5 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)';
+                }
+            }
+        } catch (e) { console.warn("Could not access CSS rules for scrollbar."); }
+    }
+
+    function swapAllBubblesVisualSide() {
+        currentVisualAlignmentIsNormal = !currentVisualAlignmentIsNormal;
+        const bubblesToSwap = Array.from(chatElement.querySelectorAll('.bubble:not(.thinking)'));
+        if (!bubblesToSwap.length) return;
+        const initialPositions = bubblesToSwap.map(b => b.getBoundingClientRect());
+        bubblesToSwap.forEach(bubble => {
+            const originalSender = bubble.dataset.originalSender;
+            let newVisualClassIsLeft = (currentVisualAlignmentIsNormal) ? (originalSender === 'left') : (originalSender === 'right');
+            bubble.classList.remove('visually-left', 'visually-right');
+            bubble.classList.add(newVisualClassIsLeft ? 'visually-left' : 'visually-right');
+        });
+        bubblesToSwap.forEach((bubble, index) => {
+            const newPos = bubble.getBoundingClientRect(); const oldPos = initialPositions[index];
+            const deltaX = oldPos.left - newPos.left; const deltaY = oldPos.top - newPos.top;
+            if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
+                bubble.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+                bubble.style.transition = 'transform 0s';
+                bubble.offsetHeight; 
+                bubble.style.transition = 'transform 0.6s ease-in-out';
+                bubble.style.transform = '';
+            } else { bubble.style.transform = ''; bubble.style.transition = ''; }
+        });
+    }
+
+    function addMessageReactionIcon(targetBubbleElement) {
+        const reactionIcon = document.createElement('span');
+        reactionIcon.classList.add('message-reaction-icon');
+        reactionIcon.textContent = messageReactionEmojis[Math.floor(Math.random() * messageReactionEmojis.length)];
+        reactionIcon.style.color = '#333';
+        targetBubbleElement.appendChild(reactionIcon);
+    }
+
+    function addReactionBubble(currentSpeakerOriginalSide, callback) {
+      const reactionOriginalSender = currentSpeakerOriginalSide === 'left' ? 'right' : 'left';
+      const reactionBubbleEl = document.createElement('div');
+      reactionBubbleEl.dataset.originalSender = reactionOriginalSender;
+      let visualSideClass = (currentVisualAlignmentIsNormal) ?
+        (reactionOriginalSender === 'left' ? 'visually-left' : 'visually-right') :
+        (reactionOriginalSender === 'left' ? 'visually-right' : 'visually-left');
+      reactionBubbleEl.classList.add('bubble', 'reaction-bubble', visualSideClass); 
+      reactionBubbleEl.textContent = unicodeReactions[Math.floor(Math.random() * unicodeReactions.length)];
+      reactionBubbleEl.style.backgroundColor = getBubbleColor(reactionOriginalSender, true);
+      setBubbleTextColor(reactionBubbleEl, reactionOriginalSender);
+      chatElement.appendChild(reactionBubbleEl);
+      chatElement.scrollTop = chatElement.scrollHeight;
+      setTimeout(() => { if (callback) callback(); }, (800 + Math.random() * 700) + 2000);
+    }
+    
+    function addMessage() {
+      if (messageCount >= MAX_MESSAGES) {
+        const endBubble = document.createElement('div');
+        endBubble.classList.add('bubble', 'thinking');
+        endBubble.style.textAlign = 'center'; endBubble.style.maxWidth = '100%';
+        endBubble.textContent = "--- End of Simulation ---";
+        chatElement.appendChild(endBubble); chatElement.scrollTop = chatElement.scrollHeight;
+        cycleBodyBackgroundAndUI();
+        return;
+      }
+      messageCount++;
+      messagesSinceLastSwap++;
+    
+      const originalSpeakerSide = (messageCount % 2 === 0) ? 'right' : 'left';
+      let messageText;
+      if (Math.random() < CHANCE_OF_QUIRKY_MESSAGE) {
+          messageText = quirkyMessages[Math.floor(Math.random() * quirkyMessages.length)];
+      } else {
+          messageText = originalSpeakerSide === 'left'
+            ? leftMessages[Math.floor(Math.random() * leftMessages.length)]
+            : rightMessages[Math.floor(Math.random() * rightMessages.length)];
+      }
+      messageText = maybeAddEmojiToMessage(messageText);
+    
+      const bubble = document.createElement('div');
+      bubble.dataset.originalSender = originalSpeakerSide;
+      let visualSideClass = (currentVisualAlignmentIsNormal) ?
+        (originalSpeakerSide === 'left' ? 'visually-left' : 'visually-right') :
+        (originalSpeakerSide === 'left' ? 'visually-right' : 'visually-left');
+      bubble.classList.add('bubble', visualSideClass, 'thinking');
+      bubble.textContent = '...';
+      bubble.style.color = currentBodyLightness < 0.5 ? '#dddddd' : '#555555';
+      
+      const currentSpeakerState = speakerColorState[originalSpeakerSide];
+      currentSpeakerState.step = (Number(currentSpeakerState.step) || 0) + 1;
+      if (currentSpeakerState.step > MAX_INTENSITY_STEPS) {
+          currentSpeakerState.step = 1; 
+          currentSpeakerState.hue = (currentSpeakerState.hue + HUE_INCREMENT) % 360;
+      }
+      bubble.style.backgroundColor = getBubbleColor(originalSpeakerSide);
+      
+      chatElement.appendChild(bubble);
+      chatElement.scrollTop = chatElement.scrollHeight;
+    
+      const thinkingDelay = 800 + Math.random() * 1200;
+      setTimeout(() => {
+        bubble.classList.remove('thinking');
+        bubble.textContent = '';
+        setBubbleTextColor(bubble, originalSpeakerSide);
+        
+        typeMessage(messageText, bubble, () => {
+          playMessageSoundForSender(originalSpeakerSide); 
+
+          if (messagesSinceLastSwap >= swapThreshold) {
+              swapAllBubblesVisualSide();
+              messagesSinceLastSwap = 0;
+              swapThreshold = Math.floor(Math.random() * 5) + 3;
+          }
+
+          if (Math.random() < CHANCE_OF_MESSAGE_REACTION) {
+              addMessageReactionIcon(bubble);
+          }
+
+          const pauseAfterMessageDelay = 1000 + Math.random() * 800;
+          setTimeout(() => {
+            if (Math.random() < CHANCE_OF_REACTION_BUBBLE) {
+              addReactionBubble(originalSpeakerSide, addMessage);
+            } else {
+              addMessage();
+            }
+          }, pauseAfterMessageDelay);
+        });
+      }, thinkingDelay);
+    }
+    
+    // Function to initialize audio on first user interaction
+    function initializeAudio() {
+        if (!audioInitialized && Tone.context.state !== 'running') {
+            Tone.start().then(() => {
+                audioInitialized = true;
+                console.log("Audio context started by user interaction.");
+            }).catch(e => {
+                console.error("Error starting Tone.js audio context:", e);
+            });
+        } else if (Tone.context.state === 'running') {
+             audioInitialized = true; // Already running
+        }
+    }
+
+    // Event listener for the mute toggle on the chat area
+    chatElement.addEventListener('click', () => {
+        if (!audioInitialized) { 
+            initializeAudio();
+        }
+        // Only toggle mute if audio has been successfully initialized or was already running
+        if (audioInitialized || Tone.context.state === 'running') {
+            isSoundMuted = !isSoundMuted;
+            console.log(isSoundMuted ? "Sounds Muted" : "Sounds Unmuted");
+        } else {
+            // This case should be less common now as initializeAudio is called on body interactions too
+            console.log("Audio context not yet started. Click/tap/type again if needed.");
+        }
+    });
+
+
+    window.onload = () => {
+        // Attempt to initialize audio on first interaction with the body
+        document.body.addEventListener('click', initializeAudio, { once: true });
+        document.body.addEventListener('touchstart', initializeAudio, { once: true });
+        document.body.addEventListener('keydown', initializeAudio, { once: true });
+        
+        addMessage();
+        setInterval(cycleBodyBackgroundAndUI, 100);
+    };
+  </script>
+</body>
+</html>
