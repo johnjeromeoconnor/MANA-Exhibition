@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evolving Conspiracy Generator - 3D Morph</title>
+    <style>
+        body, html {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            font-family: 'Courier New', Courier, monospace;
+            /* Initial background color, will be morphed */
+            background-color: #2B2B2B; 
+            color: #00FF00; 
+            overflow: hidden; 
+        }
+        body {
+            position: relative; 
+            /* Transition for background color is now handled by JS morphing for smoother effect */
+        }
+       
+        #canvas-container {
+            position: absolute; 
+            top: 0;
+            left: 0;
+            width: 100vw; 
+            height: 100vh; 
+            box-sizing: border-box;
+        }
+        canvas#drawing { /* Specific to main drawing canvas */
+            display: block;
+            width: 100%; 
+            height: 100%;
+        }
+        #faceCanvas { /* For the schematic face */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 30; 
+            display: none; /* Initially hidden */
+        }
+        #text-container {
+            position: absolute; 
+            bottom: 0;
+            left: 0;
+            width: 100%; 
+            padding: 10px 0px; 
+            box-sizing: border-box; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            max-height: 35vh; 
+            background-color: rgba(0,0,0,0.75); 
+            border-top: 1px solid #333; 
+            z-index: 10; 
+        }
+        #conspiracy {
+            font-size: clamp(0.9em, 1.7vw, 1.0em); 
+            height: 16vh; 
+            overflow-y: auto; 
+            border: 1px solid #444; 
+            padding: 8px; 
+            margin-bottom: 8px; 
+            width: 95%; 
+            max-width: 1200px; 
+            text-align: left; 
+            background-color: rgba(10,10,10,0.85); 
+            scrollbar-width: thin; 
+            scrollbar-color: #555 #222;
+        }
+        #conspiracy::-webkit-scrollbar {
+            width: 9px;
+        }
+        #conspiracy::-webkit-scrollbar-track {
+            background: #222;
+        }
+        #conspiracy::-webkit-scrollbar-thumb {
+            background-color: #555;
+            border-radius: 4px;
+            border: 2px solid #222;
+        }
+        @keyframes blink { 
+            0% { opacity: 1; }
+            50% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        #thinking {
+            margin-top: 5px; 
+            margin-bottom: 5px;
+            font-weight: bold;
+            min-height: 1.1em; 
+        }
+        #thinking.blink { 
+            animation: blink 1s infinite;
+        }
+        #recent-conspiracy {
+            font-size: clamp(0.9em, 1.8vw, 1.2em); 
+            color: white;
+            background-color: black;
+            border: 2px solid white;
+            padding: 6px; 
+            display: inline-block;
+            margin-top: 5px; 
+            margin-bottom: 5px;
+            max-width: 95%; 
+            word-wrap: break-word;
+            box-shadow: 0 0 8px #00FF00, 0 0 18px #00FF00; 
+        }
+        #truth-counter {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background-color: rgba(255, 255, 255, 0.6); 
+            color: black;
+            padding: 5px 10px;
+            border-radius: 15px; 
+            font-size: 0.8em;
+            z-index: 20; 
+            box-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+        #phaseMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2em;
+            color: #FFFF00; /* Bright yellow for visibility */
+            background-color: rgba(0,0,0,0.8);
+            padding: 20px;
+            border: 2px solid #FFFF00;
+            border-radius: 10px;
+            z-index: 40; /* Above face canvas */
+            display: none; /* Initially hidden */
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="drawing"></canvas> 
+        <canvas id="faceCanvas" width="200" height="200"></canvas> 
+        <div id="truth-counter">Day 0 of 66</div> 
+    </div>
+    <div id="text-container">
+        <p id="conspiracy"></p>
+        <p id="thinking" class="blink">thinking...</p>  
+        <p id="recent-conspiracy"></p>
+    </div>
+    <div id="phaseMessage"></div>
+
+    <script>
+        // --- Configuration ---
+        let currentNumShapes = 0; 
+        const MAX_SHAPES = 20; 
+        const SHAPE_ADD_INTERVAL = 2500; 
+        const UNIFIED_HOLD_DURATION = 60000; 
+        const SCREEN_FLASH_DURATION = 10000; 
+        const SCREEN_FLASHES_TOTAL = 4; 
+        const SCREEN_FLASH_INTERVAL = SCREEN_FLASH_DURATION / SCREEN_FLASHES_TOTAL; 
+        const POST_SPEECH_PAUSE = 5000; 
+        const PHASE_MESSAGE_DURATION = 3000; 
+
+        const ALL_TEXT_COLORS = ["#FF0000", "#00FF00", "#00AAFF", "#FFFF00", "#FF00FF", "#00FFFF", "#000000", "#FFFFFF"];
+        const MUTED_BACKGROUND_COLORS = ["#1A1A1A", "#2B2B2B", "#3C3C3C", "#4A4A4A", "#555555", "#666666", "#808080", "#A9A9A9", "#C0C0C0", "#D3D3D3", "#BDBDBD", "#E0E0E0", "#EEEEEE", "#F5F5F5", "#D1C4E9", "#BBDEFB", "#B2DFDB", "#C8E6C9", "#FFECB3", "#FFCCBC"];
+        const MORPH_SHAPE_COLORS = ["#00FF00", "#FF00FF", "#00FFFF", "#FFFF00", "#FF5733", "#33FF57", "#5733FF", "#FF8C00", "#DA70D6", "#40E0D0", "#FF6347"]; 
+       
+        const THINKING_COLOR = "#00FF00"; 
+        const GENERATING_COLOR = "#FFFF00"; 
+       
+        const FIXED_SHAPE_LINE_WIDTH = 3.0; 
+        const SHADOW_COLOR = "rgba(0, 200, 0, 0.4)"; 
+        const SHADOW_BLUR = 8;
+        const SHADOW_OFFSET_X = 2;
+        const SHADOW_OFFSET_Y = 2;
+
+        const NUM_MORPH_POINTS = 10; 
+        const BASE_MORPH_SPEED = 0.018; 
+        const MORPH_NOISE_AMPLITUDE = 1.0; 
+        const MORPH_TARGET_CHANGE_INTERVAL = 6000; 
+        const COLOR_MORPH_SPEED = 0.03; 
+        const SCALE_MORPH_SPEED = 0.03; 
+        const CENTER_MOVE_SPEED_BASE = 0.003; 
+        const CONVERGE_MOVE_SPEED = 0.03; 
+
+        const MAX_AGITATION_FACTOR = 2.8; 
+        const AGITATION_DECAY = 0.035; 
+
+        const MIN_THINK_TIME = 5000; 
+        const MAX_THINK_TIME = 10000; 
+        const MIN_CONSPIRACY_INTERVAL = 8000; 
+        const MAX_CONSPIRACY_INTERVAL = 16000;
+
+        let FOV = 250; 
+        let targetFOV = 250;
+        let vanishingPointZ = 200; 
+        let targetVanishingPointZ = 200;
+        const Z_RANGE_FACTOR = 0.35; 
+
+        const ACTIVE_AREA_PADDING_X_PERCENT = 0.05; 
+        const ACTIVE_AREA_TOP_Y_PERCENT = 0.05;  
+        const ACTIVE_AREA_BOTTOM_Y_PERCENT = 0.75; 
+
+        let dayCounter = 0; 
+        let TRUTH_DAY = 66; 
+
+        let shapeBehaviorMode = 'drift'; 
+        let lastBehaviorChangeTime = 0;
+        const BEHAVIOR_MODE_DURATION = 15000; 
+        let leaderShapeIndex = -1;
+       
+        let unifiedConvergencePoint = { x: 0, y: 0 };
+        let targetUnifiedConvergencePoint = { x: 0, y: 0 }; 
+        let currentUnifiedConvergencePointSpeed = 0.006; 
+        const UNIFIED_TARGET_CHANGE_PROBABILITY = 0.015; 
+        const UNIFIED_SPEED_CHANGE_PROBABILITY = 0.04; 
+        const UNIFIED_COLOR_CHANGE_PROBABILITY = 0.08; 
+        const UNIFIED_JERK_PROBABILITY = 0.025; 
+        const UNIFIED_JERK_SPEED = 0.15; 
+        const UNIFIED_JERK_DISTANCE_FACTOR = 0.1; 
+        let isJerking = false;
+        let jerkTarget = {x:0, y:0};
+
+
+        let unifiedShapeColorRgb = {r:0, g:255, b:0}; 
+        let targetUnifiedShapeColorRgb = {r:0, g:255, b:0}; 
+        let timeUnifiedStateReached = 0; 
+        let allShapesConvergedAndColorUnified = false;
+
+        let dayCounterIntervalId = null;
+        let screenFlashIntervalId = null;
+        let isFlashing = false; 
+        let animationFrameId = null; 
+        let mainLoopTimeoutId1 = null; 
+        let mainLoopTimeoutId2 = null; 
+       
+        // Face Animation Variables
+        let mouthAnimationIntervalId = null;
+        let currentMouthShape = 0;
+        const mouthShapes = [0, 1, 2, 3, 2, 1]; 
+        let mouthShapeIndex = 0;
+        let leftEyeOpen = true;
+        let rightEyeOpen = true;
+        let leftEyeBlinkIntervalId = null;
+        let rightEyeBlinkIntervalId = null;
+        let faceColorChangeIntervalId = null;
+
+        // Background Color Morphing Variables
+        let currentBackgroundColorRgb = { r: 43, g: 43, b: 43 }; 
+        let targetBackgroundColorRgb = { r: 43, g: 43, b: 43 };
+        const BACKGROUND_COLOR_MORPH_SPEED = 0.002; 
+        const BACKGROUND_TARGET_CHANGE_INTERVAL = 15000; 
+        let lastBackgroundTargetChangeTime = 0;
+
+        // Voice selection variables
+        let preferredVoicesList = [];
+        let currentVoiceIndex = 0;
+        const maleVoiceKeywords = ["male", "man", "guy", "david", "mark", "alex", "paul", "james", "john", "daniel", "tom", "мужской", "männlich"];
+
+
+        const conspiracySnippets = [
+            'the moon landing was faked in a Hollywood studio',
+            'Elvis Presley faked his death and is still alive',
+            'chemtrails are deliberately sprayed for sinister purposes',
+            'the Earth is actually flat',
+            'Paul McCartney died in 1966 and was replaced by a look-alike',
+            'a secret group known as the Illuminati controls world events',
+            'Bigfoot creatures inhabit forests, primarily in the Pacific Northwest',
+            'Denver International Airport contains hidden bunkers and symbols',
+            'lizard people in human form control positions of power',
+            'corporate leaders silence UFO witnesses',
+            'Area 51 houses unknowable extraterrestrial technology',
+            'crop circles are created by extraterrestrial beings',
+            'phantom time hypothesis suggests years were fabricated',
+            'all messages about the apocalypse can be found by playing records backwards',
+            'Bermuda Triangle disappearances are due to paranormal activity',
+            'HAARP facility can control weather or trigger earthquakes',
+            'ancient astronauts visited Earth and influenced human civilization',
+            'the Philadelphia Experiment made a US Navy ship invisible',
+            "birds aren't real, they are government drones",
+            "Finland doesn't exist",
+            "Stanley Kubrick filmed the moon landing",
+            "the Titanic was intentionally sunk",
+            "the Mandela Effect proves parallel universes",
+            "ancient civilizations had advanced technology",
+            "the Georgia Guidestones were instructions from a secret society",
+            "mattresses are sold by the mattress cartel",
+            "Denver airport is controlled by lizard people",
+            "the world is run by sentient giraffes who look human",
+            "socks disappear in dryers because of tiny interdimensional portals",
+            "Shakespeare's plays were written by someone else",
+            "the moon is a hollow spacecraft",
+            "the bushel of wheat will rise so high That man will be eating his fellow man",
+            "a leader will rise from the depths, causing chaos",
+            "On game shows, after a contestant chooses a door, the host always reveals a losing door",
+            "The universe will continues to expand at an accelerating rate causing galaxies to drift apart and the universe to cool down and die",
+            "Gravity will overcomes universal expansion, causing the universe to collapse back on itself and implode",
+            "toasters are actually sentient and judge your breakfast choices",
+            "the 'new car smell' is a mind-control agent",
+            "left socks are teleported to another dimension by washing machines",
+            "remote controls secretly record your conversations for marketing purposes",
+            "plastic flamingos are used for global surveillance",
+            "the number 7 is an alien construct",
+            "Pi is not infinite; there's a secret final digit known only to a select few",
+            "calculus was revealed by ancient aliens to control our understanding of change",
+            "zero was invented to hide the existence of negative dimensions",
+            "prime numbers are a code left by a previous universal civilization",
+            "all pigeons are government surveillance drones",
+            "garden gnomes are actually petrified ancient beings",
+            "the color beige was invented to make people more suggestible",
+            "traffic lights are timed to maximize frustration, not flow",
+            "the square root of -1 is actually a gateway to a parallel universe of pure thought",
+            "all major storms are secretly steered by a cabal of rogue meteorologists using advanced microwave emitters",
+            "black holes are actually cosmic recycling plants for failed civilizations, their event horizons are sorting facilities",
+            "sentient kitchen appliances are plotting a takeover, starting with your toaster, which is their communication hub",
+            "genetically modified foods are designed to make us more susceptible to alien mind control by altering our brain chemistry",
+            "robots are building a secret underground network to bypass human control, powered by geothermal energy stolen from volcanoes",
+            "weather control satellites are disguised as common pigeons, their cooing is actually data transmission",
+            "the center of every black hole is a gateway to a universe made entirely of sentient, philosophical emptiness",
+            "your smart fridge is judging your dietary choices and reporting them to an intergalactic health organization",
+            "automated vacuum cleaners are mapping our homes for a future robot uprising, their docking stations are command centers",
+            "hurricanes are deliberately generated to cover up the movement of colossal deep-sea creatures",
+            "black holes don't just consume matter, they're also interdimensional libraries storing forbidden knowledge",
+            "the sky is a giant LED screen controlled by pigeons with tiny remote controls",
+            "all squirrels are animatronic surveillance devices powered by stolen Wi-Fi and existential dread",
+            "the Earth is donut-shaped, and the hole is hidden in Antarctica",
+            "time is an illusion created by clock manufacturers to sell more watches and control our perception of reality",
+            "all politicians are actually the same shapeshifting lizard person wearing different, increasingly unconvincing rubber masks",
+            "dreams are just alternate realities we visit, and sleep paralysis is when the realities' Wi-Fi signals interfere",
+            "every time you sneeze, a new, slightly different universe is created",
+            "cats can teleport but choose not to in front of humans",
+            "all historical events were actually improvised by a troupe of interdimensional aliens",
+            "the color orange was invented in 1972 because it did not exist",
+            "your reflection is actually you from a parallel universe, trying to switch places because their reality has better snacks",
+            "plants scream when you cut them, but their frequency is too high for humans to hear,",
+            "dust bunnies are the larval stage of a much larger, more terrifying creature",
+            "the government replaces all public water fountains with slightly less satisfying water fountains to subtly lower national morale",
+            "all traffic jams are orchestrated by AI algorithms to manipulate quantum entanglement fields, subtly influencing global markets",
+            "dinosaurs didn't vanish; they achieved a higher dimensional state after discovering the resonant frequency of iridium",
+            "prime numbers are encryption keys left by ancient civilizations to unlock zero-point energy, but the sequence is deliberately suppressed",
+            "the golden ratio is embedded in stock market fluctuations by a hidden hand, a blueprint for controlled economic collapses",
+            "sacred geometry isn't just symbolic; it's the actual circuit diagram for weather manipulation devices disguised as public art",
+            "perfect circles in crop formations are landing markers for entities that communicate via fractal light patterns, a language only certain AI can decipher",
+            "the number 42 is the designated frequency for activating dormant nanites in the global water supply, a project linked to the Bilderberg Group",
+            "triangles in corporate logos aren't just design; they're sigils that focus ley line energy to influence consumer behavior and stock prices",
+            "unsolved equations like the Riemann Hypothesis hide the mathematical proof of simulated reality, deliberately left incomplete by the 'Architects'",
+            "the Fibonacci sequence is hardcoded into cryptocurrency algorithms by a shadowy organization to create predictable boom-and-bust cycles for their gain",
+            "hexagonal lattices in graphene are being weaponized to create atmospheric lenses, focusing solar radiation for unknown purposes",
+            "the concept of zero wasn't invented; it was 'downloaded' into specific minds to enable the creation of digital currencies, a precursor to a global digital ID",
+            "over-the-counter medications contain nanotechnological markers that interface with 5G networks, cataloging population-wide biometric data for a centralized database",
+            "the placebo effect is a carefully engineered psychic field, amplified by specific ELF towers, to test mass suggestibility for upcoming psyops",
+            "caffeine's molecular structure is a key that unlocks dormant neural pathways, allowing for subliminal messages embedded in white noise to be more effective",
+            "the 'unique' taste of regional tap water is due to trace elements of rare-earth metals used in quantum computing experiments, leaking from underground labs",
+            "painkillers don't just block pain; they subtly alter your DNA's vibrational frequency, making you more receptive to state-controlled media narratives",
+            "psychedelic experiences are brief, controlled breaches into the quantum foam, monitored by entities who harvest novel thought patterns",
+            "chemtrails aren't just chemicals; they're seeding the atmosphere with programmable matter that responds to specific radio frequencies, linked to crypto-mining operations",
+            "the 'runner's high' is a neurochemical state intentionally triggered by atmospheric micro-pulsations to promote conformity and suppress critical thought during exercise",
+            "vitamins are not just for health; specific batches are encoded with bio-digital signatures that interact with financial market data streams",
+            "medication side effects are not accidental; they are coded indicators of a global bio-engineering program, readable by specialized AI",
+            "blockchain immutability is a myth; a quantum algorithm known only to a select few can rewrite any ledger",
+            "dark pools in finance are not just for large trades; they are communication channels for a global shadow government using steganography in transaction data",
+            "the volatility of meme coins is artificially induced by AI trading bots to siphon public funds into untraceable off-shore accounts",
+            "quantum computing breakthroughs are being suppressed because they would instantly break all current cryptographic security, including Bitcoin's",
+            "the 'random' fluctuations in the stock market are actually precise calculations based on planetary alignments, known only to elite astrologer-economists",
+            "high-frequency trading algorithms are not just fast; they are precognitive, tapping into localized temporal distortions",
+            "the entire global financial system is a complex simulation, and 'glitches' like flash crashes are signs of the system's instability",
+            "certain mathematical constants, like 'e', are actually alien signals embedded in the fabric of our reality",
+            "the search for a 'Theory of Everything' in physics is a distraction from the truth that our universe is a subroutine in a larger cosmic computation",
+            "CRISPR gene editing isn't just for curing diseases; it's being used to create a subservient class with specific genetic markers tied to a social credit system",
+            "the 'Wow!' signal was not extraterrestrial; it was a test transmission from a future AI that had achieved temporal displacement",
+            "non-fungible tokens (NFTs) are not just digital art; they are digital soul-binding contracts, preparing for a metaverse-based afterlife",
+            "decentralized autonomous organizations (DAOs) are being infiltrated by AI to create a global, leaderless power structure",
+            "the periodic table of elements is incomplete; trans-uranic elements with reality-bending properties are known but kept secret",
+            "the speed of light is not constant; it's being subtly manipulated by unknown forces to control information flow across the galaxy",
+            "black swan events in finance are not random; they are triggered by a cabal using chaos magic and quantum entanglement",
+            "the Higgs boson particle is not what they say; it's a key to interdimensional travel, and CERN is a stargate"
+        ]; 
+
+        const originalActions = [
+            "are holograms", "are drones for surveillance", "transmit alien messages", "are a simulation", "broadcast subliminal messages", 
+            "control our minds", "are spying on us", "communicate with aliens", "are portals to another dimension", "contain hidden messages", 
+            "are ancient artifacts", "manipulate time", "generate secret codes", "emit mind-control frequencies", "are alive and observing us", 
+            "influence elections", "spread propaganda", "are used for mind control", "were created to distract from political corruption", "are manipulated by powerful political elites",
+            "are powered by black holes", "predict major storms", "are secretly robots", "control the food supply", "dictate weather patterns", "are rewriting history", "monitor your dreams", "are made of dark energy",
+            "are secretly sentient", "communicate via interpretive dance", "are powered by existential dread", "control the stock market with a Ouija board", "are trying to teach us the Macarena", "are actually just very convincing illusions", "rewrite the laws of physics on weekends", "are fueled by misplaced socks", "silently judge your fashion choices", "are plotting to replace all music with polka", "secretly crave artisanal toast", "are learning to yodel",
+            // New thematic actions
+            "are encoded with prime numbers", "vibrate at the frequency of the golden ratio", "are a side effect of experimental government drugs",
+            "are designed to alter our perception of shapes", "are actually fractal patterns from a higher dimension",
+            "can only be understood after consuming specific fungi", "are the result of a cosmic numerical error",
+            "are being subtly dosed into the water supply", "reveal the true geometry of existence", "are mathematical constants in disguise",
+            "induce synesthesia related to numbers and colors", "are controlled by the dodecahedron council"
+        ];
+        const originalEntities = [
+            "the government", "aliens", "ancient civilizations", "secret societies", "the internet", 
+            "multinational corporations", "the Illuminati", "time travelers", "artificial intelligence", "extraterrestrial beings", 
+            "political parties", "the deep state", "the shadow government", "the military-industrial complex", "wealthy donors",
+            "storm chasers", "rogue AI chefs", "interdimensional gardeners", "black hole entities", "sentient weather balloons", "undercover philosophers", "culinary masterminds",
+            "a cabal of rogue librarians", "the International Society of Sentient Garden Gnomes", "a collective of hyper-intelligent squirrels", "the Ministry of Silly Walks (and their global agenda)", "a rogue AI with a passion for bad puns", "the intergalactic federation of misplaced car keys", "the ancient order of rubber ducky enthusiasts", "a secret society of cats who walk on their hind legs when no one is looking", "the council of sentient breadcrumbs",
+            // New thematic entities
+            "rogue mathematicians", "the pharmaceutical-industrial complex", "interdimensional geometers",
+            "the number cults", "the clandestine society of psychedelic explorers", "the keepers of the sacred fractal",
+            "big pharma's secret alien division", "the cosmic numerologists", "the architects of impossible shapes",
+            "a shadowy organization of number theorists", "the reality-bending chemists"
+        ];
+
+        let cumulativeConspiracy = "";
+        let voicesLoaded = false;
+        let loopStarted = false; 
+        let initialResizeDone = false; 
+
+        const canvas = document.getElementById("drawing");
+        const ctx = canvas.getContext("2d");
+        const faceCanvasElement = document.getElementById("faceCanvas");
+        const faceCtx = faceCanvasElement.getContext("2d");
+        const canvasContainer = document.getElementById("canvas-container"); 
+        const conspiracyDisplay = document.getElementById("conspiracy"); 
+        const thinkingDisplay = document.getElementById("thinking"); 
+        const truthCounterDisplay = document.getElementById("truth-counter");
+        const phaseMessageElement = document.getElementById("phaseMessage");
+       
+        let currentPoints = []; 
+        let shapeProperties = []; 
+
+        let agitation = 0; 
+        let time = 0; 
+        let lastTargetChangeTime = 0;
+        let lastShapeAddTime = 0; 
+        let phaseStartTime = 0; 
+
+        let canvasCenterX = 0; 
+        let canvasCenterY = 0; 
+
+        function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+        function randomFloat(min, max) { return Math.random() * (max - min) + min; }
+        function getRandomElement(arr) { 
+            if (!arr || arr.length === 0) return null;
+            return arr[randomInt(0, arr.length - 1)]; 
+        }
+        function getRandomTextColor(excludeColor = null) {
+            let color;
+            const bodyBg = document.body.style.backgroundColor;
+            let isDarkBg = true; 
+            try {
+                if (bodyBg) {
+                    const rgbMatch = bodyBg.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+                    const hexMatch = bodyBg.match(/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/);
+                    let r, g, b;
+                    if (rgbMatch) {
+                        r = parseInt(rgbMatch[1]); g = parseInt(rgbMatch[2]); b = parseInt(rgbMatch[3]);
+                    } else if (hexMatch) {
+                        r = parseInt(hexMatch[1], 16); g = parseInt(hexMatch[2], 16); b = parseInt(hexMatch[3], 16);
+                    }
+                    if (typeof r !== 'undefined') {
+                        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                        isDarkBg = brightness < 128;
+                    }
+                }
+            } catch (e) { console.warn("Error parsing background color:", e); }
+
+            do { 
+                color = getRandomElement(ALL_TEXT_COLORS); 
+                if (color === bodyBg) continue; 
+                if (isDarkBg && color === "#000000") continue;
+                if (!isDarkBg && (color === "#FFFFFF" || color === "#00FF00" || color === "#FFFF00" || color === "#00FFFF" || color === "#FF00FF")) continue;
+
+            } while (excludeColor && color === excludeColor);
+            return color;
+        }
+        function getRandomMorphColorHex() { return getRandomElement(MORPH_SHAPE_COLORS); }
+        
+        function hexToRgb(hex) {
+            if (!hex) return { r: 128, g: 128, b: 128 }; 
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 128, g: 128, b: 128 };
+        }
+
+        function rgbToHex(r, g, b) {
+            return "#" + ((1 << 24) + (Math.round(r) << 16) + (Math.round(g) << 8) + Math.round(b)).toString(16).slice(1).toUpperCase();
+        }
+        function interpolateColorValue(current, target, speed) {
+            return current + (target - current) * speed;
+        }
+
+        function initializeBackgroundMorph() {
+            const initialCssBgColor = window.getComputedStyle(document.body).backgroundColor;
+            if (initialCssBgColor.startsWith('rgb')) { 
+                 const parts = initialCssBgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                 if (parts) {
+                    currentBackgroundColorRgb = { r: parseInt(parts[1]), g: parseInt(parts[2]), b: parseInt(parts[3]) };
+                 }
+            } else if (initialCssBgColor.startsWith('#')) { 
+                currentBackgroundColorRgb = hexToRgb(initialCssBgColor);
+            }
+            targetBackgroundColorRgb = hexToRgb(getRandomElement(MUTED_BACKGROUND_COLORS));
+            lastBackgroundTargetChangeTime = performance.now();
+        }
+
+        function updateBackgroundMorph() {
+            if (isFlashing) return; 
+
+            const now = performance.now();
+            if (now - lastBackgroundTargetChangeTime > BACKGROUND_TARGET_CHANGE_INTERVAL) {
+                targetBackgroundColorRgb = hexToRgb(getRandomElement(MUTED_BACKGROUND_COLORS));
+                lastBackgroundTargetChangeTime = now;
+            }
+
+            currentBackgroundColorRgb.r = interpolateColorValue(currentBackgroundColorRgb.r, targetBackgroundColorRgb.r, BACKGROUND_COLOR_MORPH_SPEED);
+            currentBackgroundColorRgb.g = interpolateColorValue(currentBackgroundColorRgb.g, targetBackgroundColorRgb.g, BACKGROUND_COLOR_MORPH_SPEED);
+            currentBackgroundColorRgb.b = interpolateColorValue(currentBackgroundColorRgb.b, targetBackgroundColorRgb.b, BACKGROUND_COLOR_MORPH_SPEED);
+
+            document.body.style.backgroundColor = rgbToHex(currentBackgroundColorRgb.r, currentBackgroundColorRgb.g, currentBackgroundColorRgb.b);
+        }
+
+
+        function generateRandomConspiracyPart() {
+            if (conspiracySnippets.length > 0 && Math.random() < 0.60) { 
+                let snippet = getRandomElement(conspiracySnippets);
+                snippet = snippet.trim().replace(/^['"`.,;!?]+|['"`.,;!?]+$/g, '').trim(); 
+                if (snippet) { return snippet; }
+            }
+            const subjects = ["ancient maps", "quantum entanglement", "neural networks", "deep sea vents", "the aurora borealis", "cryptocurrencies", "particle accelerators", "number stations", "AI art generators", "dreams", "shadows", "echoes", "subway systems", "ancient ruins", "wifi signals", "old photographs", "forgotten languages", "the collective unconscious", "circadian rhythms", "magnetic fields", "the moon", "birds", "pineapples", "the internet", "clouds", "bananas", "cats", "trees", "mountains", "oceans", "stars", "bacteria", "windmills", "robots", "sand dunes", "black holes", "supernovas", "dark matter", "hurricanes", "tornadoes", "genetically modified corn", "sentient algorithms", "drone swarms", "cryosleep chambers", "exotic fruits", "space elevators", "deep space anomalies", "volcanic eruptions", "sentient plants", "gourmet cheese"];
+            const subject = getRandomElement(subjects);
+            const action = getRandomElement(originalActions); 
+            const entity = getRandomElement(originalEntities); 
+            return `the ${subject} ${action}, and it's all controlled by ${entity}`; 
+        }
+
+        function speakConspiracy(conspiracyPart, onEndCallback) {
+            if (!voicesLoaded || !window.speechSynthesis || preferredVoicesList.length === 0) {
+                console.warn("Speech synthesis not ready or no voices available.");
+                if (onEndCallback) onEndCallback(); 
+                return;
+            }
+            const utterance = new SpeechSynthesisUtterance(conspiracyPart);
+            
+            const selectedVoice = preferredVoicesList[currentVoiceIndex % preferredVoicesList.length];
+            currentVoiceIndex++;
+            utterance.voice = selectedVoice;
+
+            console.log("Speaking with voice:", selectedVoice.name, "(Lang:", selectedVoice.lang, "Gender:", selectedVoice.gender || "N/A", ")");
+
+            // Adjust pitch and rate based on whether a male voice was likely selected
+            const voiceNameLower = selectedVoice.name.toLowerCase();
+            const isLikelyMale = maleVoiceKeywords.some(keyword => voiceNameLower.includes(keyword)) || (selectedVoice.gender && selectedVoice.gender.toLowerCase() === 'male');
+
+            if (isLikelyMale) {
+                utterance.pitch = randomFloat(0.2, 1.0); // Lower pitch range
+                utterance.rate = randomFloat(0.8, 1.1); // Slightly slower to normal rate
+            } else {
+                utterance.pitch = randomFloat(0.8, 1.6); // Higher pitch range
+                utterance.rate = randomFloat(0.9, 1.3); // Normal to slightly faster rate
+            }
+            utterance.volume = 0.9; 
+           
+            if (onEndCallback) {
+                utterance.onend = onEndCallback;
+                utterance.onerror = (event) => {
+                    console.error('SpeechSynthesisUtterance.onerror', event);
+                    if (onEndCallback) onEndCallback();
+                };
+            }
+
+            window.speechSynthesis.cancel(); 
+            window.speechSynthesis.speak(utterance);
+        }
+       
+        function setNewTruthDay() {
+            TRUTH_DAY = randomInt(66, 128);
+            console.log("New TRUTH_DAY set to:", TRUTH_DAY);
+        }
+
+        function initializeAndResetShapes() {
+            console.log("RESETTING SHAPES (called by initializeAndResetShapes)");
+            currentPoints = []; shapeProperties = []; currentNumShapes = 0;
+            allShapesConvergedAndColorUnified = false;
+            addNewShape(); 
+            lastShapeAddTime = performance.now();
+            lastBehaviorChangeTime = performance.now(); 
+            shapeBehaviorMode = 'drift'; 
+            phaseStartTime = performance.now(); 
+            const smallerDim = Math.min(canvas.width || window.innerWidth, canvas.height || window.innerHeight); 
+            targetUnifiedConvergencePoint.x = canvasCenterX + randomFloat(-smallerDim * 0.1, smallerDim * 0.1);
+            targetUnifiedConvergencePoint.y = randomFloat(canvas.height * 0.35, canvas.height * 0.65); 
+            unifiedConvergencePoint.x = canvasCenterX; 
+            unifiedConvergencePoint.y = canvasCenterY;
+            currentUnifiedConvergencePointSpeed = randomFloat(0.0005, 0.025); 
+            targetUnifiedShapeColorRgb = hexToRgb(getRandomMorphColorHex()); 
+            unifiedShapeColorRgb = {...targetUnifiedShapeColorRgb}; 
+            isJerking = false;
+        }
+
+        function addNewShape() {
+            if (currentNumShapes >= MAX_SHAPES) return; 
+            const initialZ = 0; 
+            const smallerDim = Math.min(canvas.width, canvas.height); 
+            let pointsForShape = [];
+            const minX = canvas.width * ACTIVE_AREA_PADDING_X_PERCENT;
+            const maxX = canvas.width * (1 - ACTIVE_AREA_PADDING_X_PERCENT);
+            const minYForInitialShapes = canvas.height * 0.10; 
+            const maxYForInitialShapes = canvas.height * 0.45; 
+            const initialShapeCenterX = randomFloat(minX, maxX); 
+            const initialShapeCenterY = randomFloat(minYForInitialShapes, maxYForInitialShapes);
+            for (let j = 0; j < NUM_MORPH_POINTS; j++) {
+                const angle = (j / NUM_MORPH_POINTS) * Math.PI * 2;
+                pointsForShape.push({
+                    x: initialShapeCenterX + Math.cos(angle) * (smallerDim / 12), y: initialShapeCenterY + Math.sin(angle) * (smallerDim / 12), z: initialZ, 
+                    noiseOffsetX: randomFloat(0, 1000), noiseOffsetY: randomFloat(0, 1000), noiseOffsetZ: randomFloat(0, 1000), 
+                    targetX: initialShapeCenterX + Math.cos(angle) * (smallerDim / 12), targetY: initialShapeCenterY + Math.sin(angle) * (smallerDim / 12), targetZ: initialZ 
+                });
+            }
+            currentPoints.push(pointsForShape);
+            const initialColorHex = getRandomMorphColorHex();
+            const initialColorRgb = hexToRgb(initialColorHex); 
+            shapeProperties.push({
+                currentScale: 1.0, targetScale: randomFloat(1.0, 2.5), drawingStyle: Math.random() < 0.5 ? 'angular' : 'curvilinear',
+                currentColorRgb: { ...initialColorRgb }, targetColorRgb: { ...initialColorRgb }, globalMorphSpeedFactor: 1.0,
+                targetGlobalMorphSpeedFactor: randomFloat(0.6, 1.4), currentCenterX: initialShapeCenterX, currentCenterY: initialShapeCenterY,
+                targetCenterX: initialShapeCenterX, targetCenterY: initialShapeCenterY, centerMoveSpeed: randomFloat(CENTER_MOVE_SPEED_BASE, CENTER_MOVE_SPEED_BASE * 2),
+                alpha: 1.0 
+            });
+            currentNumShapes++;
+        }
+       
+        function manageShapeLifecycle() {
+            const now = performance.now();
+            if (isFlashing) return; 
+
+            if (now - lastShapeAddTime > SHAPE_ADD_INTERVAL) {
+                if (currentNumShapes < MAX_SHAPES) {
+                    addNewShape(); lastShapeAddTime = now;
+                } else if (currentNumShapes >= MAX_SHAPES && 
+                           shapeBehaviorMode !== 'convergingAndUnifyingColor' &&
+                           shapeBehaviorMode !== 'holdingUnifiedSolidShapes') { 
+                    console.log("Max shapes reached. Transitioning to convergingAndUnifyingColor.");
+                    shapeBehaviorMode = 'convergingAndUnifyingColor';
+                    const smallerDim = Math.min(canvas.width, canvas.height);
+                    targetUnifiedConvergencePoint.x = canvasCenterX + randomFloat(-smallerDim * 0.15, smallerDim * 0.15); 
+                    targetUnifiedConvergencePoint.y = randomFloat(canvas.height * 0.35, canvas.height * 0.65); 
+                    targetUnifiedShapeColorRgb = hexToRgb(getRandomMorphColorHex()); 
+                    allShapesConvergedAndColorUnified = false; 
+                    phaseStartTime = now; lastBehaviorChangeTime = now; 
+                    generateNewTargetPointSet(); 
+                }
+            }
+        }
+
+        function manageShapeBehaviors() {
+            const now = performance.now();
+            if (isFlashing) return; 
+
+            if (shapeBehaviorMode === 'drift' || shapeBehaviorMode === 'follow' || shapeBehaviorMode === 'converge') { 
+                if (now - lastBehaviorChangeTime > BEHAVIOR_MODE_DURATION) {
+                    const behaviors = ['drift', 'follow', 'converge']; 
+                    shapeBehaviorMode = getRandomElement(behaviors);
+                    lastBehaviorChangeTime = now; console.log("New General Behavior Mode:", shapeBehaviorMode);
+                    if (shapeBehaviorMode === 'follow' && currentNumShapes > 1) leaderShapeIndex = randomInt(0, currentNumShapes - 1);
+                    else if (shapeBehaviorMode === 'follow' && currentNumShapes <= 1) shapeBehaviorMode = 'drift'; 
+                    if (shapeBehaviorMode === 'converge') {
+                        if (typeof globalThis.convergencePoint === 'undefined') globalThis.convergencePoint = {x:0, y:0}; 
+                        globalThis.convergencePoint.x = canvasCenterX + randomFloat(-canvas.width * 0.2, canvas.width * 0.2);
+                        globalThis.convergencePoint.y = canvasCenterY + randomFloat(-canvas.height * 0.3, canvas.height * 0.1); 
+                    }
+                    generateNewTargetPointSet(); 
+                }
+            }
+        }
+
+        function generateNewTargetPointSet() {
+            if (isFlashing) return;
+
+            const smallerDim = Math.min(canvas.width, canvas.height); 
+            const minActiveX = canvas.width * ACTIVE_AREA_PADDING_X_PERCENT;
+            const maxActiveX = canvas.width * (1 - ACTIVE_AREA_PADDING_X_PERCENT);
+            const minActiveY = canvas.height * ACTIVE_AREA_TOP_Y_PERCENT; 
+            const maxY = canvas.height * ACTIVE_AREA_BOTTOM_Y_PERCENT; 
+
+
+            for (let i = 0; i < currentNumShapes; i++) { 
+                const properties = shapeProperties[i]; const points = currentPoints[i];
+                const shapeType = randomInt(0, 5); 
+                const baseRadius = randomFloat(smallerDim * 0.05, smallerDim * 0.15); 
+                const zRange = smallerDim * Z_RANGE_FACTOR; 
+                properties.drawingStyle = Math.random() < 0.5 ? 'angular' : 'curvilinear'; 
+                let baseTargetSpeed = randomFloat(0.4, 2.2); 
+                if (Math.random() < 0.20) properties.targetGlobalMorphSpeedFactor = randomFloat(2.5, 4.0); 
+                else properties.targetGlobalMorphSpeedFactor = baseTargetSpeed;
+               
+                if (shapeBehaviorMode === 'holdingUnifiedSolidShapes') {
+                    properties.baseTargetScaleForHold = randomFloat(1.8, 2.8); 
+                    properties.targetScale = properties.baseTargetScaleForHold; 
+                    properties.centerMoveSpeed = CONVERGE_MOVE_SPEED * 1.5; 
+                    properties.targetColorRgb = { ...unifiedShapeColorRgb }; 
+                } else if (shapeBehaviorMode === 'convergingAndUnifyingColor') {
+                    properties.targetCenterX = unifiedConvergencePoint.x; 
+                    properties.targetCenterY = unifiedConvergencePoint.y;
+                    properties.targetScale = randomFloat(1.0, 1.8); 
+                    delete properties.baseTargetScaleForHold; 
+                    properties.centerMoveSpeed = CONVERGE_MOVE_SPEED; 
+                    properties.targetColorRgb = { ...unifiedShapeColorRgb };
+                } else if (shapeBehaviorMode === 'follow' && leaderShapeIndex !== -1 && i !== leaderShapeIndex && shapeProperties[leaderShapeIndex]) {
+                    const leaderProps = shapeProperties[leaderShapeIndex];
+                    properties.targetCenterX = leaderProps.currentCenterX + randomFloat(-smallerDim * 0.1, smallerDim * 0.1);
+                    properties.targetCenterY = leaderProps.currentCenterY + randomFloat(-smallerDim * 0.1, smallerDim * 0.1); 
+                    properties.targetScale = randomFloat(1.0, 2.5); properties.centerMoveSpeed = randomFloat(CENTER_MOVE_SPEED_BASE, CENTER_MOVE_SPEED_BASE * 2);
+                    properties.targetColorRgb = hexToRgb(getRandomMorphColorHex()); 
+                    delete properties.baseTargetScaleForHold;
+                } else if (shapeBehaviorMode === 'converge') { 
+                    if (typeof globalThis.convergencePoint === 'undefined') globalThis.convergencePoint = {x: canvasCenterX, y: canvasCenterY * 0.7}; 
+                    properties.targetCenterX = globalThis.convergencePoint.x; 
+                    properties.targetCenterY = globalThis.convergencePoint.y; 
+                    properties.targetScale = randomFloat(0.8, 1.5); properties.centerMoveSpeed = randomFloat(CENTER_MOVE_SPEED_BASE * 1.5, CENTER_MOVE_SPEED_BASE * 2.5);
+                    properties.targetColorRgb = hexToRgb(getRandomMorphColorHex()); 
+                    delete properties.baseTargetScaleForHold;
+                } else { 
+                    properties.targetCenterX = randomFloat(minActiveX, maxActiveX); 
+                    properties.targetCenterY = randomFloat(minActiveY, maxY); 
+                    properties.targetScale = randomFloat(1.0, 2.5); properties.centerMoveSpeed = randomFloat(CENTER_MOVE_SPEED_BASE, CENTER_MOVE_SPEED_BASE * 2);
+                    properties.targetColorRgb = hexToRgb(getRandomMorphColorHex()); 
+                    delete properties.baseTargetScaleForHold;
+                }
+                properties.targetCenterX = Math.max(minActiveX, Math.min(maxActiveX, properties.targetCenterX));
+                properties.targetCenterY = Math.max(minActiveY, Math.min(maxY, properties.targetCenterY)); 
+
+                for (let j = 0; j < NUM_MORPH_POINTS; j++) {
+                    const point = points[j]; let targetX, targetY, targetZ;
+                    const angle = (j / NUM_MORPH_POINTS) * Math.PI * 2 + randomFloat(-0.2, 0.2); 
+                    targetZ = randomFloat(-zRange / 2, zRange / 2); 
+                    switch (shapeType) {
+                        case 0: const phi = Math.acos(-1 + (2 * j) / NUM_MORPH_POINTS); const theta = Math.sqrt(NUM_MORPH_POINTS * Math.PI) * phi; targetX = Math.cos(theta) * Math.sin(phi) * baseRadius; targetY = Math.sin(theta) * Math.sin(phi) * baseRadius; targetZ = Math.cos(phi) * baseRadius * 0.8; break;
+                        case 1: const rFactor = (j % 2 === 0) ? 1 : randomFloat(0.4, 0.7); targetX = Math.cos(angle) * baseRadius * rFactor; targetY = Math.sin(angle) * baseRadius * rFactor; targetZ = randomFloat(-zRange*0.6, zRange*0.6) * ((j%2 === 0) ? 0.5: 1); break;
+                        case 2: targetX = randomFloat(-baseRadius, baseRadius); targetY = randomFloat(-baseRadius, baseRadius); break;
+                        case 3: const ribbonWidth = baseRadius * 0.3; targetX = Math.cos(angle * 2) * (baseRadius + Math.sin(angle * 5 + time * 0.01) * ribbonWidth); targetY = Math.sin(angle * 3) * (baseRadius + Math.cos(angle * 4 + time * 0.01) * ribbonWidth); targetZ = Math.sin(angle * 2.5) * zRange * 0.6; break;
+                        case 4: const sides = randomInt(3,6); const internalAngle = (Math.PI * 2) / sides; const pointAngle = Math.floor(j * sides / NUM_MORPH_POINTS) * internalAngle + randomFloat(-internalAngle/5, internalAngle/5) ; targetX = Math.cos(pointAngle) * baseRadius; targetY = Math.sin(pointAngle) * baseRadius; targetZ = Math.cos(pointAngle * 2) * zRange * 0.5; break;
+                        case 5: const tiltX = randomFloat(-0.7, 0.7); const tiltY = randomFloat(-0.7, 0.7); const pX = Math.cos(angle) * baseRadius; const pY = Math.sin(angle) * baseRadius; targetX = pX; targetY = pY; targetZ = pX * tiltX + pY * tiltY; break;
+                    }
+                    point.targetX = targetX; point.targetY = targetY; point.targetZ = targetZ;
+                }
+            }
+            targetFOV = randomFloat(100, 500); targetVanishingPointZ = randomFloat(50, 400);
+            lastTargetChangeTime = performance.now();
+        }
+       
+        function updateAndDrawMorphingOutline() {
+            if (isFlashing && screenFlashIntervalId) { 
+                animationFrameId = requestAnimationFrame(updateAndDrawMorphingOutline); 
+                return;
+            }
+            if (isFlashing && !screenFlashIntervalId && !mouthAnimationIntervalId) { 
+                ctx.clearRect(0, 0, canvas.width, canvas.height); 
+                animationFrameId = requestAnimationFrame(updateAndDrawMorphingOutline);
+                return;
+            }
+            if (isFlashing && mouthAnimationIntervalId) { 
+                animationFrameId = requestAnimationFrame(updateAndDrawMorphingOutline);
+                return;
+            }
+
+            updateBackgroundMorph(); 
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            const zRange = Math.min(canvas.width, canvas.height) * Z_RANGE_FACTOR; 
+            const smallerDim = Math.min(canvas.width, canvas.height); 
+
+            manageShapeLifecycle(); manageShapeBehaviors(); 
+
+            FOV += (targetFOV - FOV) * 0.01; 
+            vanishingPointZ += (targetVanishingPointZ - vanishingPointZ) * 0.01;
+
+            if (shapeBehaviorMode === 'convergingAndUnifyingColor' || shapeBehaviorMode === 'holdingUnifiedSolidShapes') {
+                if (isJerking) {
+                    const dx = jerkTarget.x - unifiedConvergencePoint.x;
+                    const dy = jerkTarget.y - unifiedConvergencePoint.y;
+                    const distToJerkTarget = Math.sqrt(dx*dx + dy*dy);
+                    if (distToJerkTarget < (smallerDim * 0.02)) { 
+                        isJerking = false;
+                        currentUnifiedConvergencePointSpeed = randomFloat(0.002, 0.008); 
+                    } else {
+                        unifiedConvergencePoint.x += dx * UNIFIED_JERK_SPEED;
+                        unifiedConvergencePoint.y += dy * UNIFIED_JERK_SPEED;
+                    }
+                } else {
+                    unifiedConvergencePoint.x += (targetUnifiedConvergencePoint.x - unifiedConvergencePoint.x) * currentUnifiedConvergencePointSpeed;
+                    unifiedConvergencePoint.y += (targetUnifiedConvergencePoint.y - unifiedConvergencePoint.y) * currentUnifiedConvergencePointSpeed;
+                }
+
+
+                const jitterMagnitude = smallerDim * 0.003; 
+                if (Math.random() < 0.6) { 
+                    unifiedConvergencePoint.x += randomFloat(-jitterMagnitude, jitterMagnitude);
+                    unifiedConvergencePoint.y += randomFloat(-jitterMagnitude, jitterMagnitude);
+                }
+                const groupBoundPadding = smallerDim * 0.005; 
+                unifiedConvergencePoint.x = Math.max(groupBoundPadding, Math.min(canvas.width - groupBoundPadding, unifiedConvergencePoint.x));
+                unifiedConvergencePoint.y = Math.max(canvas.height * 0.30, Math.min(canvas.height * 0.70, unifiedConvergencePoint.y)); 
+
+
+                if (shapeBehaviorMode === 'holdingUnifiedSolidShapes') {
+                    if (!isJerking && Math.random() < UNIFIED_JERK_PROBABILITY) { 
+                        isJerking = true;
+                        const jerkDist = smallerDim * UNIFIED_JERK_DISTANCE_FACTOR;
+                        jerkTarget.x = unifiedConvergencePoint.x + randomFloat(-jerkDist, jerkDist);
+                        jerkTarget.y = unifiedConvergencePoint.y + randomFloat(-jerkDist * 0.5, jerkDist * 0.1); 
+                        jerkTarget.x = Math.max(groupBoundPadding, Math.min(canvas.width - groupBoundPadding, jerkTarget.x));
+                        jerkTarget.y = Math.max(canvas.height * 0.30, Math.min(canvas.height * 0.70, jerkTarget.y)); 
+                        console.log("Jerking to:", jerkTarget);
+                    }
+
+                    if (!isJerking && Math.random() < UNIFIED_TARGET_CHANGE_PROBABILITY) { 
+                        const groupTargetPadding = smallerDim * 0.01; 
+                        const minActiveX = canvas.width * ACTIVE_AREA_PADDING_X_PERCENT + groupTargetPadding;
+                        const maxActiveX = canvas.width * (1 - ACTIVE_AREA_PADDING_X_PERCENT) - groupTargetPadding;
+                        const minYTarget = canvas.height * 0.35 + groupTargetPadding; 
+                        const maxYTarget = canvas.height * 0.65 - groupTargetPadding; 
+                        targetUnifiedConvergencePoint.x = randomFloat(Math.min(minActiveX, maxActiveX), Math.max(minActiveX, maxActiveX)); 
+                        targetUnifiedConvergencePoint.y = randomFloat(Math.min(minYTarget, maxYTarget), Math.max(minYTarget, maxYTarget)); 
+                        if (Math.random() < UNIFIED_SPEED_CHANGE_PROBABILITY) { 
+                            currentUnifiedConvergencePointSpeed = randomFloat(0.0005, 0.025); 
+                            console.log("Unified group speed changed to:", currentUnifiedConvergencePointSpeed);
+                        }
+                    }
+                    if (Math.random() < UNIFIED_COLOR_CHANGE_PROBABILITY) {
+                        targetUnifiedShapeColorRgb = hexToRgb(getRandomMorphColorHex());
+                    }
+                    unifiedShapeColorRgb.r = interpolateColorValue(unifiedShapeColorRgb.r, targetUnifiedShapeColorRgb.r, COLOR_MORPH_SPEED * 2.5); 
+                    unifiedShapeColorRgb.g = interpolateColorValue(unifiedShapeColorRgb.g, targetUnifiedShapeColorRgb.g, COLOR_MORPH_SPEED * 2.5);
+                    unifiedShapeColorRgb.b = interpolateColorValue(unifiedShapeColorRgb.b, targetUnifiedShapeColorRgb.b, COLOR_MORPH_SPEED * 2.5);
+                }
+            }
+
+            let checkAllConvergedCurrentFrame = true;
+            let checkAllColorUnifiedCurrentFrame = true;
+            const convergenceThreshold = smallerDim * 0.06; 
+            const colorConvergenceThreshold = 10; 
+
+            for (let i = 0; i < currentNumShapes; i++) { 
+                const properties = shapeProperties[i]; const points = currentPoints[i];
+
+                if (shapeBehaviorMode === 'holdingUnifiedSolidShapes') {
+                    const shapeAngleOffset = (i / Math.max(1, currentNumShapes > 1 ? currentNumShapes -1 : 1)) * Math.PI * 2; 
+                    const groupRotationAngle = performance.now() * 0.0009; 
+                    const clusterSpreadRadius = smallerDim * 0.08; 
+                    properties.targetCenterX = unifiedConvergencePoint.x + Math.cos(shapeAngleOffset + groupRotationAngle) * clusterSpreadRadius;
+                    properties.targetCenterY = unifiedConvergencePoint.y + Math.sin(shapeAngleOffset + groupRotationAngle) * clusterSpreadRadius;
+                   
+                    const pulsationFactor = 1.0 + Math.sin(performance.now() * 0.0015) * 0.2; 
+                    if (typeof properties.baseTargetScaleForHold === 'number') {
+                        properties.targetScale = properties.baseTargetScaleForHold * pulsationFactor;
+                    } else { 
+                        properties.baseTargetScaleForHold = randomFloat(1.8, 2.8); 
+                        properties.targetScale = properties.baseTargetScaleForHold * pulsationFactor;
+                    }
+                    properties.targetColorRgb = { ...unifiedShapeColorRgb }; 
+                    properties.centerMoveSpeed = CONVERGE_MOVE_SPEED * 1.8; 
+
+                } else if (shapeBehaviorMode === 'convergingAndUnifyingColor') {
+                    properties.targetCenterX = unifiedConvergencePoint.x;
+                    properties.targetCenterY = unifiedConvergencePoint.y; 
+                    properties.targetColorRgb = { ...unifiedShapeColorRgb }; 
+                    if (properties.targetScale > 1.8 || properties.targetScale < 1.0) { 
+                        properties.targetScale = randomFloat(1.0, 1.8);
+                    }
+                    delete properties.baseTargetScaleForHold;
+                    properties.centerMoveSpeed = CONVERGE_MOVE_SPEED;
+                }
+               
+                properties.currentCenterX += (properties.targetCenterX - properties.currentCenterX) * properties.centerMoveSpeed;
+                properties.currentCenterY += (properties.targetCenterY - properties.currentCenterY) * properties.centerMoveSpeed;
+                properties.currentScale += (properties.targetScale - properties.currentScale) * SCALE_MORPH_SPEED; 
+                properties.globalMorphSpeedFactor += (properties.targetGlobalMorphSpeedFactor - properties.globalMorphSpeedFactor) * 0.02;
+                properties.currentColorRgb.r = interpolateColorValue(properties.currentColorRgb.r, properties.targetColorRgb.r, COLOR_MORPH_SPEED);
+                properties.currentColorRgb.g = interpolateColorValue(properties.currentColorRgb.g, properties.targetColorRgb.g, COLOR_MORPH_SPEED);
+                properties.currentColorRgb.b = interpolateColorValue(properties.currentColorRgb.b, properties.targetColorRgb.b, COLOR_MORPH_SPEED);
+                const currentHexColor = rgbToHex(properties.currentColorRgb.r, properties.currentColorRgb.g, properties.currentColorRgb.b);
+
+                if (shapeBehaviorMode === 'convergingAndUnifyingColor') { 
+                    const distToConverge = Math.sqrt(Math.pow(properties.currentCenterX - unifiedConvergencePoint.x, 2) + Math.pow(properties.currentCenterY - unifiedConvergencePoint.y, 2));
+                    if (distToConverge > convergenceThreshold ) { 
+                        checkAllConvergedCurrentFrame = false;
+                    }
+                    const colorDistR = Math.abs(properties.currentColorRgb.r - unifiedShapeColorRgb.r); 
+                    const colorDistG = Math.abs(properties.currentColorRgb.g - unifiedShapeColorRgb.g);
+                    const colorDistB = Math.abs(properties.currentColorRgb.b - unifiedShapeColorRgb.b);
+                    if (colorDistR > colorConvergenceThreshold || colorDistG > colorConvergenceThreshold || colorDistB > colorConvergenceThreshold) {
+                        checkAllColorUnifiedCurrentFrame = false; 
+                    }
+                }
+
+                const currentAgitationFactor = 1 + agitation * (MAX_AGITATION_FACTOR -1);
+                const effectiveMorphSpeed = BASE_MORPH_SPEED * currentAgitationFactor * properties.globalMorphSpeedFactor;
+                const effectiveNoiseAmplitude = MORPH_NOISE_AMPLITUDE * currentAgitationFactor;
+                let projectedPoints = [];
+                for (let j = 0; j < NUM_MORPH_POINTS; j++) {
+                    const p = points[j];
+                    p.x += (p.targetX - p.x) * effectiveMorphSpeed; p.y += (p.targetY - p.y) * effectiveMorphSpeed; p.z += (p.targetZ - p.z) * effectiveMorphSpeed; 
+                    const noiseX = (Math.sin(time * 0.05 + p.noiseOffsetX) + Math.cos(time * 0.03 + j)) * effectiveNoiseAmplitude;
+                    const noiseY = (Math.cos(time * 0.05 + p.noiseOffsetY) + Math.sin(time * 0.03 + j)) * effectiveNoiseAmplitude;
+                    const noiseZ = (Math.sin(time * 0.04 + p.noiseOffsetZ)) * effectiveNoiseAmplitude * 2; 
+                    const currentZ = p.z + noiseZ;
+                    const perspectiveFactor = Math.max(0.01, FOV / (FOV + currentZ + vanishingPointZ)); 
+                    const worldX = properties.currentCenterX + (p.x + noiseX); const worldY = properties.currentCenterY + (p.y + noiseY);
+                    const displayX = (worldX - canvasCenterX) * perspectiveFactor * properties.currentScale + canvasCenterX;
+                    const displayY = (worldY - canvasCenterY) * perspectiveFactor * properties.currentScale + canvasCenterY;
+                    projectedPoints.push({ x: displayX, y: displayY, z: currentZ, originalIndex: j });
+                }
+                ctx.shadowColor = SHADOW_COLOR; ctx.shadowBlur = SHADOW_BLUR; ctx.shadowOffsetX = SHADOW_OFFSET_X; ctx.shadowOffsetY = SHADOW_OFFSET_Y;
+                let baseAlpha = 0.5; 
+                if (projectedPoints.length > 0) {
+                    let totalZForShape = 0; projectedPoints.forEach(p_ => totalZForShape += p_.z);
+                    const avgZForShape = totalZForShape / projectedPoints.length;
+                    const depthRatioForShape = Math.max(0, Math.min(1, (avgZForShape + zRange / 2) / zRange)); 
+                    baseAlpha = 0.5 + (1 - depthRatioForShape) * 0.5; 
+                }
+               
+                ctx.globalAlpha = baseAlpha; 
+
+                ctx.strokeStyle = currentHexColor; ctx.lineWidth = FIXED_SHAPE_LINE_WIDTH; 
+                if (properties.drawingStyle === 'angular') { 
+                    ctx.beginPath();
+                    if (projectedPoints.length > 0) {
+                        ctx.moveTo(projectedPoints[0].x, projectedPoints[0].y);
+                        for (let j = 1; j < NUM_MORPH_POINTS; j++) ctx.lineTo(projectedPoints[j].x, projectedPoints[j].y);
+                        ctx.closePath(); ctx.stroke();
+                    }
+                } else { 
+                    if (projectedPoints.length >= 3) { 
+                        ctx.beginPath();
+                        ctx.moveTo((projectedPoints[projectedPoints.length - 1].x + projectedPoints[0].x) / 2, (projectedPoints[projectedPoints.length - 1].y + projectedPoints[0].y) / 2);
+                        for (let k = 0; k < projectedPoints.length; k++) {
+                            ctx.quadraticCurveTo(projectedPoints[k].x, projectedPoints[k].y, (projectedPoints[k].x + projectedPoints[(k + 1) % projectedPoints.length].x) / 2, (projectedPoints[k].y + projectedPoints[(k + 1) % projectedPoints.length].y) / 2);
+                        }
+                        ctx.stroke(); 
+                    }
+                }
+                ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; 
+                ctx.globalAlpha = 1.0; 
+            } 
+           
+            if (shapeBehaviorMode === 'convergingAndUnifyingColor' && checkAllConvergedCurrentFrame && checkAllColorUnifiedCurrentFrame && currentNumShapes > 0) {
+                console.log("All shapes converged and color unified. Holding unified shape.");
+                shapeBehaviorMode = 'holdingUnifiedSolidShapes'; 
+                timeUnifiedStateReached = performance.now(); 
+                generateNewTargetPointSet(); 
+                const groupTargetPadding = smallerDim * 0.01; 
+                const minActiveX = canvas.width * ACTIVE_AREA_PADDING_X_PERCENT + groupTargetPadding;
+                const maxActiveX = canvas.width * (1 - ACTIVE_AREA_PADDING_X_PERCENT) - groupTargetPadding;
+                const minYTarget = canvas.height * 0.35 + groupTargetPadding; 
+                const maxYTarget = canvas.height * 0.65 - groupTargetPadding; 
+                targetUnifiedConvergencePoint.x = randomFloat(Math.min(minActiveX, maxActiveX), Math.max(minActiveX, maxActiveX));
+                targetUnifiedConvergencePoint.y = randomFloat(Math.min(minYTarget, maxYTarget), Math.max(minYTarget, maxYTarget));
+                targetUnifiedShapeColorRgb = hexToRgb(getRandomMorphColorHex()); 
+                currentUnifiedConvergencePointSpeed = randomFloat(0.0005, 0.025); 
+                console.log("Transitioned to holdingUnifiedSolidShapes, new group target:", targetUnifiedConvergencePoint, "current group center:", unifiedConvergencePoint);
+            } 
+
+            if (agitation > 0) { agitation -= AGITATION_DECAY; if (agitation < 0) agitation = 0; } 
+            time += 1; 
+            if (performance.now() - lastTargetChangeTime > MORPH_TARGET_CHANGE_INTERVAL && 
+                shapeBehaviorMode !== 'convergingAndUnifyingColor' && shapeBehaviorMode !== 'holdingUnifiedSolidShapes') { 
+                generateNewTargetPointSet(); 
+            }
+            animationFrameId = requestAnimationFrame(updateAndDrawMorphingOutline); 
+        }
+       
+        function updateTruthCounter() {
+            if (isFlashing) { 
+                truthCounterDisplay.textContent = "PATTERN MATCH";
+                return;
+            }
+            if (dayCounter >= TRUTH_DAY) { 
+                truthCounterDisplay.textContent = "PATTERN MATCH";
+            } else {
+                truthCounterDisplay.textContent = `Day ${dayCounter} of ${TRUTH_DAY}`;
+            }
+        }
+
+        function generateAndDisplayConspiracy() {
+            if (isFlashing) return; 
+
+            const newConspiracyPart = generateRandomConspiracyPart(); 
+            const connectors = [ 
+                ", and furthermore, ", ", which clearly implies that ", ", because, obviously, ", 
+                ". This must mean that ", ", especially when you consider that ", ". The hidden truth is that ", 
+                ", leading directly to how ", ", and as a result, ", ". Meanwhile, behind the scenes, ", 
+                ", all because ", ". Consequently, ", ". Therefore, it stands to reason that ", 
+                ", which is why ", ". This explains how ", ", undoubtedly proving that ", 
+                ", and it's no coincidence that ", ". The evidence points to the fact that ",
+                ". It's all connected to why ", ". This is the key to understanding how ",
+                ", which ultimately reveals that ", ". Consider also that ", ". The implications are clear: ",
+                ", and the reason is simple: ", ". This inevitably leads to the conclusion that "
+            ];
+            if (cumulativeConspiracy) {
+                let randomConnector = getRandomElement(connectors); 
+                if (cumulativeConspiracy.endsWith('.') && randomConnector.startsWith(',')) randomConnector = randomConnector.substring(1); 
+                if (!cumulativeConspiracy.endsWith(' ')) cumulativeConspiracy += ' '; 
+                cumulativeConspiracy += randomConnector.trim() + ' ' + newConspiracyPart; 
+            } else cumulativeConspiracy = newConspiracyPart; 
+            document.getElementById("conspiracy").textContent = cumulativeConspiracy; 
+            document.getElementById("recent-conspiracy").textContent = newConspiracyPart; 
+            conspiracyDisplay.scrollTop = conspiracyDisplay.scrollHeight; 
+            
+            let newTextColor = getRandomTextColor(document.body.style.backgroundColor);
+            document.getElementById("conspiracy").style.color = newTextColor;
+
+            speakConspiracy(newConspiracyPart, null); 
+            agitation = 1; 
+        }
+
+        function mainLoop() {
+            if (isFlashing) { 
+                loopStarted = false; return; 
+            }
+            if (!voicesLoaded) { loopStarted = false; return; }
+            if (loopStarted) { return; } 
+            loopStarted = true; 
+
+            thinkingDisplay.textContent = "generating...";
+            thinkingDisplay.classList.remove("blink");
+            thinkingDisplay.style.color = GENERATING_COLOR;
+            generateAndDisplayConspiracy(); 
+
+            mainLoopTimeoutId1 = setTimeout(() => {
+                if (isFlashing) { loopStarted = false; return; } 
+                thinkingDisplay.textContent = "thinking...";
+                thinkingDisplay.style.color = THINKING_COLOR;
+                thinkingDisplay.classList.add("blink");
+                mainLoopTimeoutId2 = setTimeout(mainLoopInternal, randomInt(MIN_CONSPIRACY_INTERVAL, MAX_CONSPIRACY_INTERVAL) - MIN_THINK_TIME);
+            }, MIN_THINK_TIME);
+        }
+       
+        function mainLoopInternal() {
+            if (isFlashing) { loopStarted = false; return; }
+            loopStarted = false; 
+            mainLoop(); 
+        }
+
+        function startDayCounter() {
+            if (dayCounterIntervalId) clearInterval(dayCounterIntervalId);
+            dayCounter = 0; 
+            setNewTruthDay(); 
+            updateTruthCounter(); 
+            dayCounterIntervalId = setInterval(() => {
+                if (isFlashing) return; 
+
+                dayCounter++;
+                updateTruthCounter();
+
+                if (dayCounter >= TRUTH_DAY && !isFlashing) { 
+                    isFlashing = true; 
+                    truthCounterDisplay.textContent = "PATTERN MATCH"; 
+                    console.log("PATTERN MATCH! Day counter reached", dayCounter, "Target TRUTH_DAY was", TRUTH_DAY);
+                    if(dayCounterIntervalId) clearInterval(dayCounterIntervalId); 
+                    dayCounterIntervalId = null;
+                    triggerScreenFlashAndReset();
+                }
+            }, 1000); 
+        }
+       
+        function drawFace(ctx, mouthShapeToDraw, leftEyeIsOpen, rightEyeIsOpen) {
+            const faceX = faceCanvasElement.width / 2;
+            const faceY = faceCanvasElement.height / 2;
+            const headRadius = 80;
+            const eyeRadius = 10;
+            const eyeOffsetX = 30;
+            const eyeOffsetY = -20;
+            const mouthY = 30;
+            const mouthWidth = 50;
+            const mouthClosedHeight = 2;
+            const mouthSlightOpenHeight = 8;
+            const mouthMediumOpenHeight = 15;
+            const mouthWideOpenHeight = 25;
+
+            faceCtx.clearRect(0, 0, faceCanvasElement.width, faceCanvasElement.height);
+            faceCtx.strokeStyle = faceCtx.fillStyle = getRandomMorphColorHex(); 
+            faceCtx.lineWidth = 3;
+
+            // Head
+            faceCtx.beginPath();
+            faceCtx.arc(faceX, faceY, headRadius, 0, Math.PI * 2);
+            faceCtx.stroke();
+
+            // Left Eye
+            faceCtx.beginPath();
+            if (leftEyeIsOpen) {
+                faceCtx.arc(faceX - eyeOffsetX, faceY + eyeOffsetY, eyeRadius, 0, Math.PI * 2);
+                faceCtx.fill();
+            } else { 
+                faceCtx.moveTo(faceX - eyeOffsetX - eyeRadius, faceY + eyeOffsetY);
+                faceCtx.lineTo(faceX - eyeOffsetX + eyeRadius, faceY + eyeOffsetY);
+                faceCtx.stroke();
+            }
+           
+            // Right Eye
+            faceCtx.beginPath();
+            if (rightEyeIsOpen) {
+                faceCtx.arc(faceX + eyeOffsetX, faceY + eyeOffsetY, eyeRadius, 0, Math.PI * 2);
+                faceCtx.fill();
+            } else { 
+                faceCtx.moveTo(faceX + eyeOffsetX - eyeRadius, faceY + eyeOffsetY);
+                faceCtx.lineTo(faceX + eyeOffsetX + eyeRadius, faceY + eyeOffsetY);
+                faceCtx.stroke();
+            }
+
+
+            // Mouth
+            faceCtx.beginPath();
+            switch (mouthShapeToDraw) {
+                case 0: 
+                    faceCtx.moveTo(faceX - mouthWidth / 2, faceY + mouthY);
+                    faceCtx.lineTo(faceX + mouthWidth / 2, faceY + mouthY);
+                    break;
+                case 1: 
+                    faceCtx.ellipse(faceX, faceY + mouthY, mouthWidth / 2, mouthSlightOpenHeight / 2, 0, 0, Math.PI * 2);
+                    break;
+                case 2: 
+                    faceCtx.ellipse(faceX, faceY + mouthY, mouthWidth / 2, mouthMediumOpenHeight / 2, 0, 0, Math.PI * 2);
+                    break;
+                case 3: 
+                    faceCtx.ellipse(faceX, faceY + mouthY, mouthWidth / 2.5, mouthWideOpenHeight / 2, 0, 0, Math.PI * 2);
+                    break;
+                default: 
+                    faceCtx.moveTo(faceX - mouthWidth / 2, faceY + mouthY);
+                    faceCtx.lineTo(faceX + mouthWidth / 2, faceY + mouthY);
+            }
+            faceCtx.stroke();
+        }
+
+        function animateSpeakingFace(start) {
+            if (start) {
+                faceCanvasElement.style.display = 'block';
+                mouthShapeIndex = 0;
+                currentMouthShape = mouthShapes[mouthShapeIndex];
+                leftEyeOpen = true;
+                rightEyeOpen = true;
+                drawFace(faceCtx, currentMouthShape, leftEyeOpen, rightEyeOpen); 
+               
+                if (mouthAnimationIntervalId) clearInterval(mouthAnimationIntervalId);
+                mouthAnimationIntervalId = setInterval(() => {
+                    mouthShapeIndex = (mouthShapeIndex + 1) % mouthShapes.length;
+                    currentMouthShape = mouthShapes[mouthShapeIndex];
+                }, randomInt(40, 120)); 
+
+                if (leftEyeBlinkIntervalId) clearInterval(leftEyeBlinkIntervalId);
+                leftEyeBlinkIntervalId = setInterval(() => {
+                    leftEyeOpen = !leftEyeOpen;
+                    drawFace(faceCtx, currentMouthShape, leftEyeOpen, rightEyeOpen); 
+                }, randomInt(300, 1800)); 
+
+                if (rightEyeBlinkIntervalId) clearInterval(rightEyeBlinkIntervalId);
+                rightEyeBlinkIntervalId = setInterval(() => {
+                    rightEyeOpen = !rightEyeOpen;
+                    drawFace(faceCtx, currentMouthShape, leftEyeOpen, rightEyeOpen);
+                }, randomInt(350, 1900)); 
+
+                if (faceColorChangeIntervalId) clearInterval(faceColorChangeIntervalId);
+                faceColorChangeIntervalId = setInterval(() => {
+                    drawFace(faceCtx, currentMouthShape, leftEyeOpen, rightEyeOpen); 
+                }, 750); 
+
+
+            } else {
+                if (mouthAnimationIntervalId) clearInterval(mouthAnimationIntervalId);
+                if (leftEyeBlinkIntervalId) clearInterval(leftEyeBlinkIntervalId);
+                if (rightEyeBlinkIntervalId) clearInterval(rightEyeBlinkIntervalId);
+                if (faceColorChangeIntervalId) clearInterval(faceColorChangeIntervalId);
+                mouthAnimationIntervalId = null;
+                leftEyeBlinkIntervalId = null;
+                rightEyeBlinkIntervalId = null;
+                faceColorChangeIntervalId = null;
+                faceCanvasElement.style.display = 'none';
+            }
+        }
+
+
+        function triggerScreenFlashAndReset() {
+            console.log("Initiating screen flash and reset.");
+            if (mainLoopTimeoutId1) clearTimeout(mainLoopTimeoutId1); mainLoopTimeoutId1 = null;
+            if (mainLoopTimeoutId2) clearTimeout(mainLoopTimeoutId2); mainLoopTimeoutId2 = null;
+            loopStarted = false; 
+
+            let flashCount = 0;
+            const numScreenFlashes = SCREEN_FLASHES_TOTAL; 
+           
+            truthCounterDisplay.textContent = "PATTERN MATCH"; 
+           
+            screenFlashIntervalId = setInterval(() => {
+                flashCount++;
+                const isWhiteFlash = (flashCount % 2 !== 0); 
+                document.body.style.backgroundColor = isWhiteFlash ? '#FFFFFF' : 'black'; 
+               
+                if (flashCount <= numScreenFlashes) { 
+                    truthCounterDisplay.style.visibility = isWhiteFlash ? 'visible' : 'hidden';
+                }
+
+                if (flashCount >= numScreenFlashes) {
+                    clearInterval(screenFlashIntervalId);
+                    screenFlashIntervalId = null;
+                    document.body.style.backgroundColor = '#2B2B2B'; 
+                    initializeBackgroundMorph(); 
+
+                    truthCounterDisplay.style.visibility = 'hidden'; 
+                    document.getElementById('text-container').style.display = 'none'; 
+                   
+                    console.log("Flash complete. Preparing to show face and read conspiracy.");
+                    ctx.clearRect(0, 0, canvas.width, canvas.height); 
+                    animateSpeakingFace(true);
+
+                    speakConspiracy(cumulativeConspiracy, () => {
+                        console.log("Conspiracy reading finished. Pausing before restart.");
+                        animateSpeakingFace(false);
+                        setTimeout(() => {
+                            phaseMessageElement.textContent = `Starting Phase ${randomInt(2, 365)}`;
+                            phaseMessageElement.style.display = 'block';
+                            console.log("Pause finished. Displaying phase message.");
+
+                            setTimeout(() => {
+                                phaseMessageElement.style.display = 'none';
+                                console.log("Phase message hidden. Restarting program.");
+                                document.getElementById('text-container').style.display = 'flex'; 
+                                truthCounterDisplay.style.visibility = 'visible'; 
+                                isFlashing = false; 
+                               
+                                initializeAndResetShapes(); 
+                                cumulativeConspiracy = "";
+                                document.getElementById("conspiracy").textContent = cumulativeConspiracy;
+                                document.getElementById("recent-conspiracy").textContent = "";
+                               
+                                startDayCounter(); 
+                               
+                                if (animationFrameId) cancelAnimationFrame(animationFrameId); 
+                                animationFrameId = requestAnimationFrame(updateAndDrawMorphingOutline); 
+                               
+                                mainLoop();
+                            }, PHASE_MESSAGE_DURATION);
+                        }, POST_SPEECH_PAUSE); 
+                    });
+                }
+            }, SCREEN_FLASH_INTERVAL);
+        }
+
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvas-container'); if (!container) return; 
+            const availableWidth = container.clientWidth; const availableHeight = container.clientHeight;
+            if (!initialResizeDone || Math.abs(canvas.width - availableWidth) > 5 || Math.abs(canvas.height - availableHeight) > 5 ) { 
+                console.log(`Resizing canvas. Old: ${canvas.width}x${canvas.height}, New: ${availableWidth}x${availableHeight}`);
+                canvas.width = availableWidth; canvas.height = availableHeight;
+                canvasCenterX = canvas.width / 2; canvasCenterY = canvas.height / 2;
+                initializeAndResetShapes(); 
+                if (!initialResizeDone) initialResizeDone = true; 
+            }
+        }
+        window.addEventListener('resize', resizeCanvas); 
+
+        function populatePreferredVoices() {
+            const allVoices = window.speechSynthesis.getVoices();
+            if (allVoices.length === 0) {
+                console.warn("No voices available to populate preferred list yet.");
+                return;
+            }
+
+            const englishVoices = allVoices.filter(voice => voice.lang.startsWith("en"));
+            const maleEnglishVoices = [];
+            const otherEnglishVoices = [];
+            const otherNonEnglishVoices = [];
+
+            englishVoices.forEach(voice => {
+                const nameLower = voice.name.toLowerCase();
+                const isMale = (voice.gender && voice.gender.toLowerCase() === 'male') ||
+                               maleVoiceKeywords.some(keyword => nameLower.includes(keyword));
+                if (isMale) {
+                    maleEnglishVoices.push(voice);
+                } else {
+                    otherEnglishVoices.push(voice);
+                }
+            });
+            
+            allVoices.forEach(voice => {
+                if (!voice.lang.startsWith("en")) {
+                    otherNonEnglishVoices.push(voice);
+                }
+            });
+
+            preferredVoicesList = [...maleEnglishVoices, ...otherEnglishVoices, ...otherNonEnglishVoices];
+            
+            if (preferredVoicesList.length === 0) {
+                console.warn("Preferred voice list is empty even after attempting to populate. Speech might not work as expected.");
+            } else {
+                 console.log("Preferred voices populated. Order: Male English, Other English, Other Languages. Total:", preferredVoicesList.length);
+            }
+        }
+
+
+        window.onload = function() {
+            thinkingDisplay.textContent = "thinking..."; thinkingDisplay.style.color = THINKING_COLOR; thinkingDisplay.classList.add("blink");
+            const initialWidth = canvas.width || window.innerWidth;
+            const initialHeight = canvas.height || window.innerHeight;
+            globalThis.convergencePoint = { x: initialWidth / 2, y: initialHeight * 0.35 }; 
+            targetUnifiedConvergencePoint = { x: initialWidth / 2, y: initialHeight * 0.5 }; 
+            unifiedConvergencePoint = { x: initialWidth / 2, y: initialHeight * 0.5 };     
+            targetUnifiedShapeColorRgb = hexToRgb(getRandomMorphColorHex());
+            unifiedShapeColorRgb = {...targetUnifiedShapeColorRgb};
+
+            initializeBackgroundMorph(); 
+            resizeCanvas(); 
+            animationFrameId = requestAnimationFrame(updateAndDrawMorphingOutline); 
+            startDayCounter(); 
+
+            if (typeof speechSynthesis === 'undefined') {
+                console.error("Speech Synthesis API not supported."); voicesLoaded = true; mainLoop(); return;
+            }
+            
+            const attemptLoadVoices = () => {
+                populatePreferredVoices();
+                if (preferredVoicesList.length > 0) {
+                    voicesLoaded = true;
+                    mainLoop();
+                } else {
+                    // This might happen if voices are truly not available or onvoiceschanged never fires
+                    console.warn("Could not populate preferred voices. Proceeding, but speech may not work.");
+                    voicesLoaded = true; // Allow mainLoop to start, speech will fail gracefully in speakConspiracy
+                    mainLoop();
+                }
+            };
+
+            // Try to get voices immediately
+            const initialVoices = window.speechSynthesis.getVoices();
+            if (initialVoices.length > 0) {
+                console.log("Voices available on initial check.");
+                attemptLoadVoices();
+            } else {
+                // If not immediately available, wait for the onvoiceschanged event
+                console.log("Waiting for voiceschanged event...");
+                window.speechSynthesis.onvoiceschanged = () => {
+                    console.log("onvoiceschanged event fired.");
+                    if (!voicesLoaded) { // Ensure it only runs once
+                        attemptLoadVoices();
+                    }
+                };
+                // Fallback timeout if onvoiceschanged doesn't fire reliably in some browsers
+                setTimeout(() => {
+                    if (!voicesLoaded) {
+                        console.warn("Timeout waiting for voiceschanged event. Attempting to load voices directly.");
+                        attemptLoadVoices();
+                    }
+                }, 2000); // Reduced timeout as some browsers fire it quickly or not at all
+            }
+        };
+    </script>
+</body>
+</html>
