@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Random 17-Letter Words (Audio Only)</title>
+  <style>
+    /* Optionally, style the page as needed. No word display element is used now. */
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding-top: 50px;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    // Array of 17 real 17-letter English words
+    var realWords = [
+      "indistinguishable",
+      "unconventionality",
+      "counterproductive",
+      "misinterpretation",
+      "uncontrollability",
+      "institutionalized",
+      "electrocardiogram",
+      "misrepresentation",
+      "unintelligibility",
+      "counterrevolution",
+      "characterizations",
+      "microarchitecture",
+      "uncomplicatedness",
+      "revolutionariness",
+      "unprofessionalism",
+      "incompatibilities",
+      "unconventionalism"
+    ];
+
+    // Generate a fictional 17-letter word that looks more like an actual word.
+    function generateFictionalWord() {
+      if (Math.random() < 0.5) {
+        // Method 1: Alternating vowels and consonants for a more pronounceable word.
+        var vowels = "aeiou";
+        var consonants = "bcdfghjklmnpqrstvwxyz";
+        var word = "";
+        var startWithConsonant = Math.random() < 0.5;
+        for (var i = 0; i < 17; i++) {
+          if ((startWithConsonant && i % 2 === 0) || (!startWithConsonant && i % 2 !== 0)) {
+            word += consonants.charAt(Math.floor(Math.random() * consonants.length));
+          } else {
+            word += vowels.charAt(Math.floor(Math.random() * vowels.length));
+          }
+        }
+        return word;
+      } else {
+        // Method 2: Combine common syllable fragments.
+        var syllables = ["con", "pre", "sub", "re", "trans", "un", "in", "tion", "ment", "able", "ing", "ly", "est", "ive", "ver", "nat", "sim", "al", "or", "ist"];
+        var word = "";
+        while (word.length < 17) {
+          var syl = syllables[Math.floor(Math.random() * syllables.length)];
+          word += syl;
+        }
+        // Ensure the word is exactly 17 letters.
+        return word.substr(0, 17);
+      }
+    }
+
+    // Randomly choose a real word (1/3 chance) or a fictional word (2/3 chance).
+    function getRandomWord() {
+      // Math.random() returns a float between 0 (inclusive) and 1 (exclusive)
+      // We want real words 1/3 of the time.
+      // We want fictional words 2/3 of the time.
+      if (Math.random() < (1/3)) { // <<< MODIFIED THIS LINE
+        // This block will execute approximately 1/3 of the time
+        var index = Math.floor(Math.random() * realWords.length);
+        return realWords[index];
+      } else {
+        // This block will execute approximately 2/3 of the time
+        return generateFictionalWord();
+      }
+    }
+
+    // Load available voices.
+    var voices = [];
+    function loadVoices() {
+      voices = window.speechSynthesis.getVoices();
+    }
+    loadVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    // Speak the given word using a randomly selected American or British English voice.
+    function speakWord(word) {
+      var msg = new SpeechSynthesisUtterance(word);
+      msg.volume = 1; // Volume set to max
+      var englishVoices = voices.filter(function(voice) {
+        return voice.lang === 'en-US' || voice.lang === 'en-GB';
+      });
+      if (englishVoices.length > 0) {
+        msg.voice = englishVoices[Math.floor(Math.random() * englishVoices.length)];
+      }
+      msg.onend = function(event) {
+        scheduleNextWord();
+      };
+      msg.onerror = function(event) {
+        console.error('SpeechSynthesisUtterance.onerror', event);
+        scheduleNextWord(); 
+      };
+      window.speechSynthesis.speak(msg);
+    }
+
+    function scheduleNextWord() {
+      var minDelay = 5000;
+      var maxDelay = 30000;
+      var randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+      console.log("Next word in: " + randomDelay / 1000 + " seconds");
+      setTimeout(updateWord, randomDelay);
+    }
+
+    function updateWord() {
+      var word = getRandomWord();
+      speakWord(word);
+    }
+
+    updateWord();
+  </script>
+</body>
+</html>
