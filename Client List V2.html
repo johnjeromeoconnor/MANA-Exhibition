@@ -45,37 +45,6 @@ z-index: 100;
 font-size: 0.9em;
 }
 
-/* Control buttons */
-.controls {
-position: absolute;
-bottom: 20px;
-left: 20px;
-z-index: 100;
-display: flex;
-gap: 10px;
-}
-
-.control-btn {
-padding: 8px 16px;
-background: #333;
-color: #fff;
-border: none;
-border-radius: 4px;
-cursor: pointer;
-font-family: inherit;
-font-size: 0.9em;
-transition: background 0.3s;
-}
-
-.control-btn:hover {
-background: #555;
-}
-
-.control-btn:disabled {
-background: #666;
-cursor: not-allowed;
-}
-
 /* Styling for each name element */
 .name-item {
 position: absolute;
@@ -104,24 +73,24 @@ transform: scale(1);
 /* Styling for the hand-drawn redaction SVG */
 .redaction-scribble {
 position: absolute;
-top: 0;
-left: 0;
-width: 100%;
-height: 100%;
+/* top, left, width, and height are set dynamically in JS */
 z-index: 10;
-opacity: 0;
-transition: opacity 1s ease-in-out;
 filter: blur(0.5px);
+overflow: visible; /* Ensure paths are not clipped by the SVG boundary */
 }
 
-.redacted .redaction-scribble {
-opacity: 1;
+/* Animation for drawing the scribble paths */
+@keyframes draw-scribble {
+to {
+stroke-dashoffset: 0;
+}
 }
 
 .redacted .name-text {
-/* Hide the text when redacted */
+/* Hide the text when redacted to ensure it's fully obscured */
 color: transparent !important;
 -webkit-text-fill-color: transparent !important;
+transition: color 0.1s 1s; /* Delay hiding text until scribble is nearly done */
 }
 
 /* Responsive adjustments */
@@ -132,14 +101,6 @@ font-size: 1.5em;
 .progress-indicator {
 font-size: 0.8em;
 }
-.controls {
-bottom: 10px;
-left: 10px;
-}
-.control-btn {
-padding: 6px 12px;
-font-size: 0.8em;
-}
 }
 
 </style>
@@ -148,14 +109,8 @@ font-size: 0.8em;
 
 <h1 class="title-header">Client List</h1>
 
-<div class="progress-indicator">
-<span id="redaction-count">0</span> / <span id="total-count">0</span> redacted
-</div>
-
-<div class="controls">
-<button class="control-btn" id="pause-btn" onclick="togglePause()">Pause</button>
-<button class="control-btn" id="reset-btn" onclick="resetCycle()">Reset</button>
-<button class="control-btn" id="speed-btn" onclick="toggleSpeed()">Speed: Normal</button>
+<div class="progress-indicator" id="progress-indicator">
+0 redacted
 </div>
 
 <div id="name-container" class="w-full h-full">
@@ -165,8 +120,8 @@ font-size: 0.8em;
 <script>
 const names = [
 // Ancient Historical Figures
-"Socrates", "Plato", "Aristotle", "Alexander the Great", "Julius Caesar", 
-"Jesus Christ", "Muhammad", "Buddha", "Confucius", "Moses", 
+"Socrates", "Plato", "Aristotle", "Alexander the Great", "Julius Caesar",
+"Jesus Christ", "Muhammad", "Buddha", "Confucius", "Moses",
 "Hannibal", "Spartacus", "Augustus Caesar", "Marcus Aurelius",
 "Cicero", "Seneca", "Herodotus", "Thucydides", "Homer",
 "Virgil", "Ovid", "Pericles", "Leonidas",
@@ -203,18 +158,18 @@ const names = [
 
 // Modern Musicians (Deceased Men)
 "Elvis Presley", "Bob Marley", "Kurt Cobain", "Jimi Hendrix",
-"John Lennon", "George Harrison", "Johnny Cash", "Frank Sinatra", 
-"Miles Davis", "Louis Armstrong", "Duke Ellington", 
-"Ray Charles", "Prince", "Michael Jackson", "David Bowie", 
+"John Lennon", "George Harrison", "Johnny Cash", "Frank Sinatra",
+"Miles Davis", "Louis Armstrong", "Duke Ellington",
+"Ray Charles", "Prince", "Michael Jackson", "David Bowie",
 "Freddie Mercury", "Jim Morrison", "Buddy Holly", "Ritchie Valens",
-"Hank Williams", "Otis Redding", "Sam Cooke", "Marvin Gaye", 
+"Hank Williams", "Otis Redding", "Sam Cooke", "Marvin Gaye",
 "John Coltrane", "Charlie Parker", "Thelonious Monk",
 
 // Artists (Deceased Men)
 "Vincent van Gogh", "Pablo Picasso", "Claude Monet", "Edgar Degas",
 "Pierre-Auguste Renoir", "Paul Cézanne", "Paul Gauguin", "Henri Matisse",
-"Salvador Dalí", "Jackson Pollock", "Andy Warhol", "Jean-Michel Basquiat", 
-"Rembrandt van Rijn", "Johannes Vermeer", "Caravaggio", "Sandro Botticelli", 
+"Salvador Dalí", "Jackson Pollock", "Andy Warhol", "Jean-Michel Basquiat",
+"Rembrandt van Rijn", "Johannes Vermeer", "Caravaggio", "Sandro Botticelli",
 "Titian", "Francisco Goya", "El Greco", "Diego Velázquez", "Peter Paul Rubens",
 "Henri de Toulouse-Lautrec", "Edvard Munch", "Gustav Klimt", "Egon Schiele",
 
@@ -222,8 +177,8 @@ const names = [
 "George Washington", "Thomas Jefferson", "Benjamin Franklin", "Abraham Lincoln",
 "Theodore Roosevelt", "Franklin D. Roosevelt", "John F. Kennedy",
 "Winston Churchill", "Charles de Gaulle", "Napoléon Bonaparte",
-"Otto von Bismarck", "Peter the Great", "Ivan the Terrible", 
-"Louis XIV", "Louis XVI", "Maximilien Robespierre", "Oliver Cromwell", 
+"Otto von Bismarck", "Peter the Great", "Ivan the Terrible",
+"Louis XIV", "Louis XVI", "Maximilien Robespierre", "Oliver Cromwell",
 "Henry VIII", "Nelson Mandela", "Mahatma Gandhi", "Martin Luther King Jr.",
 "Malcolm X", "Che Guevara", "Fidel Castro", "Vladimir Lenin",
 "Leon Trotsky", "Joseph Stalin", "Mao Zedong", "Ho Chi Minh",
@@ -235,18 +190,18 @@ const names = [
 "Osama bin Laden", "Caligula", "Nero", "Vlad the Impaler",
 
 // Scientists & Inventors (Deceased Men)
-"Albert Einstein", "Charles Darwin", "Nikola Tesla", "Thomas Edison", 
-"Alexander Graham Bell", "Louis Pasteur", "Alexander Fleming", 
-"Gregor Mendel", "Stephen Hawking", "Carl Sagan", "Antoine Lavoisier", 
-"Dmitri Mendeleev", "Ernest Rutherford", "Niels Bohr", "Max Planck", 
-"Werner Heisenberg", "Erwin Schrödinger", "Richard Feynman", 
+"Albert Einstein", "Charles Darwin", "Nikola Tesla", "Thomas Edison",
+"Alexander Graham Bell", "Louis Pasteur", "Alexander Fleming",
+"Gregor Mendel", "Stephen Hawking", "Carl Sagan", "Antoine Lavoisier",
+"Dmitri Mendeleev", "Ernest Rutherford", "Niels Bohr", "Max Planck",
+"Werner Heisenberg", "Erwin Schrödinger", "Richard Feynman",
 "Alan Turing", "John von Neumann",
 
 // Explorers & Adventurers (Deceased Men)
 "Ernest Shackleton", "Robert Falcon Scott", "Roald Amundsen",
 "Edmund Hillary", "Tenzing Norgay", "Yuri Gagarin", "Neil Armstrong",
-"Buzz Aldrin", "John Glenn", "Charles Lindbergh", "Jacques Cousteau", 
-"David Livingstone", "Henry Morton Stanley", "Richard Burton", 
+"Buzz Aldrin", "John Glenn", "Charles Lindbergh", "Jacques Cousteau",
+"David Livingstone", "Henry Morton Stanley", "Richard Burton",
 "Ernest Hemingway",
 
 // Writers (Deceased Men)
@@ -265,28 +220,28 @@ const names = [
 
 // Philosophers (Deceased Men)
 "Epicurus", "Zeno of Citium", "Augustine of Hippo", "William of Ockham",
-"Søren Kierkegaard", "Friedrich Nietzsche", "Karl Marx", "Max Weber", 
-"Émile Durkheim", "Sigmund Freud", "Carl Jung", "Jean-Paul Sartre", 
-"Albert Camus", "Martin Heidegger", "Ludwig Wittgenstein", 
+"Søren Kierkegaard", "Friedrich Nietzsche", "Karl Marx", "Max Weber",
+"Émile Durkheim", "Sigmund Freud", "Carl Jung", "Jean-Paul Sartre",
+"Albert Camus", "Martin Heidegger", "Ludwig Wittgenstein",
 "Bertrand Russell", "John Rawls", "Michel Foucault", "Jacques Derrida",
 
 // Sports Figures (Deceased Men)
 "Pelé", "Diego Maradona", "Muhammad Ali", "Joe Louis", "Sugar Ray Robinson",
 "Babe Ruth", "Lou Gehrig", "Joe DiMaggio", "Mickey Mantle",
 "Ted Williams", "Willie Mays", "Hank Aaron", "Jackie Robinson",
-"Kobe Bryant", "Wilt Chamberlain", "Bill Russell", "Bruce Lee", 
-"Rocky Marciano", "Joe Frazier", "Sugar Ray Leonard", "Jesse Owens", 
-"Jim Thorpe", "Knute Rockne", "Vince Lombardi", "John Wooden", 
+"Kobe Bryant", "Wilt Chamberlain", "Bill Russell", "Bruce Lee",
+"Rocky Marciano", "Joe Frazier", "Sugar Ray Leonard", "Jesse Owens",
+"Jim Thorpe", "Knute Rockne", "Vince Lombardi", "John Wooden",
 "Red Auerbach", "Casey Stengel", "Ty Cobb",
 
 // Film & Entertainment (Deceased Men)
 "Charlie Chaplin", "Orson Welles", "Alfred Hitchcock", "Stanley Kubrick",
 "Akira Kurosawa", "Ingmar Bergman", "Federico Fellini", "John Ford",
-"Humphrey Bogart", "Marlon Brando", "James Dean", "Cary Grant", 
-"Clark Gable", "John Wayne", "Jimmy Stewart", "Gary Cooper", 
-"Spencer Tracy", "Richard Burton", "Paul Newman", "Walt Disney", 
-"Stan Lee", "Jim Henson", "Johnny Carson", "Robin Williams", 
-"Gene Wilder", "Peter Sellers", "Groucho Marx", "W.C. Fields", 
+"Humphrey Bogart", "Marlon Brando", "James Dean", "Cary Grant",
+"Clark Gable", "John Wayne", "Jimmy Stewart", "Gary Cooper",
+"Spencer Tracy", "Richard Burton", "Paul Newman", "Walt Disney",
+"Stan Lee", "Jim Henson", "Johnny Carson", "Robin Williams",
+"Gene Wilder", "Peter Sellers", "Groucho Marx", "W.C. Fields",
 "Buster Keaton", "Harold Lloyd"
 ];
 
@@ -294,263 +249,237 @@ const container = document.getElementById('name-container');
 let nameElementsOnScreen = [];
 let redactionCount = 0;
 let totalCount = 0;
-let isPaused = false;
-let currentSpeed = 15000; // Normal speed
-let speedMode = 'Normal';
-let intervalId;
-
-// Speed settings
-const speeds = {
-    'Slow': 25000,
-    'Normal': 15000,
-    'Fast': 8000,
-    'Turbo': 3000
-};
+let animationInterval;
 
 /**
 * Updates the progress indicator
 */
 function updateProgress() {
-    document.getElementById('redaction-count').textContent = redactionCount;
-    document.getElementById('total-count').textContent = totalCount;
+const indicator = document.getElementById('progress-indicator');
+indicator.textContent = `${redactionCount} redacted`;
 }
 
 /**
-* Generates an SVG element with multiple random, scribbled paths.
-* @param {number} width - The width of the SVG.
-* @param {number} height - The height of the SVG.
+* Generates a more natural and varied SVG scribble.
+* @param {number} width - The width of the SVG's viewBox.
+* @param {number} height - The height of the SVG's viewBox.
 * @param {string} color - The color of the scribble strokes.
 * @returns {SVGElement} - The generated SVG element.
 */
 function createScribble(width, height, color) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('class', 'redaction-scribble');
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+svg.setAttribute('class', 'redaction-scribble');
+svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
-    // Create more organic, overlapping scribble lines
-    const lineCount = 8 + Math.floor(Math.random() * 6); // More lines for better coverage
-    
-    for (let j = 0; j < lineCount; j++) {
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        
-        // Start from a more random position
-        const startX = (Math.random() - 0.2) * width;
-        const startY = height * Math.random();
-        let d = `M ${startX} ${startY}`;
-        
-        // Create more organic curves instead of straight lines
-        const segments = 8 + Math.floor(Math.random() * 8);
-        let currentX = startX;
-        let currentY = startY;
-        
-        for (let i = 1; i <= segments; i++) {
-            // Add some back-and-forth movement to make it more scribble-like
-            const targetX = (width / segments) * i + (Math.random() - 0.5) * (width * 0.3);
-            const targetY = height * Math.random();
-            
-            // Use quadratic curves for more organic feel
-            const controlX = currentX + (Math.random() - 0.5) * (width * 0.2);
-            const controlY = currentY + (Math.random() - 0.5) * (height * 0.4);
-            
-            d += ` Q ${controlX} ${controlY} ${targetX} ${targetY}`;
-            currentX = targetX;
-            currentY = targetY;
-        }
-        
-        path.setAttribute('d', d);
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', color);
-        path.setAttribute('stroke-width', `${2 + (Math.random() * 3)}`); // More consistent width
-        path.setAttribute('stroke-linecap', 'round');
-        path.setAttribute('stroke-linejoin', 'round');
-        // Add some opacity variation for more natural look
-        path.setAttribute('opacity', `${0.7 + (Math.random() * 0.3)}`);
-        svg.appendChild(path);
-    }
-    
-    return svg;
+const lineCount = 7 + Math.floor(Math.random() * 8);
+
+for (let j = 0; j < lineCount; j++) {
+const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+const wildness = 0.15 + Math.random() * 0.2;
+
+// Start from a random position, allowing it to go well off the left edge
+const startX = (Math.random() * -0.3) * width; // Start further left
+const startY = height * Math.random();
+let d = `M ${startX} ${startY}`;
+
+const segments = 6 + Math.floor(Math.random() * 12);
+let currentX = startX;
+let currentY = startY;
+
+for (let i = 1; i <= segments; i++) {
+// Allow the path to extend well beyond the right edge by stretching the target
+const targetX = (width * 1.4 / segments) * i + (Math.random() - 0.7) * (width * 0.3);
+const targetY = height * Math.random();
+
+const controlX = currentX + (Math.random() - 0.5) * (width * wildness);
+const controlY = currentY + (Math.random() - 0.5) * (height * (wildness + 0.3));
+
+d += ` Q ${controlX} ${controlY} ${targetX} ${targetY}`;
+currentX = targetX;
+currentY = targetY;
 }
+
+path.setAttribute('d', d);
+path.setAttribute('fill', 'none');
+path.setAttribute('stroke', color);
+path.setAttribute('stroke-width', `${1.5 + (Math.random() * 4)}`);
+path.setAttribute('stroke-linecap', 'round');
+path.setAttribute('stroke-linejoin', 'round');
+path.setAttribute('opacity', `${0.6 + (Math.random() * 0.4)}`);
+svg.appendChild(path);
+}
+
+return svg;
+}
+
 
 /**
 * Creates and places a new name element on the page.
-* @param {string} name - The name to add.
 */
 function addName(name) {
-    const nameDiv = document.createElement('div');
-    nameDiv.classList.add('name-item', 'appearing');
+const nameDiv = document.createElement('div');
+nameDiv.classList.add('name-item', 'appearing');
 
-    const nameSpan = document.createElement('span');
-    nameSpan.classList.add('name-text');
-    nameSpan.textContent = name;
-    nameDiv.appendChild(nameSpan);
+const nameSpan = document.createElement('span');
+nameSpan.classList.add('name-text');
+nameSpan.textContent = name;
+nameDiv.appendChild(nameSpan);
 
-    // Calculate available space, accounting for UI elements
-    const headerHeight = 80;
-    const controlsHeight = 80;
-    const progressWidth = 200;
-    const margin = 30;
-    
-    // Get current viewport dimensions
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    
-    // Calculate safe positioning bounds
-    const minTop = headerHeight;
-    const maxTop = viewportHeight - controlsHeight - 30;
-    const minLeft = margin;
-    const maxLeft = viewportWidth - progressWidth - margin;
-    
-    // Ensure we have valid ranges
-    const safeTop = Math.max(minTop, Math.min(maxTop, minTop + Math.random() * (maxTop - minTop)));
-    const safeLeft = Math.max(minLeft, Math.min(maxLeft, minLeft + Math.random() * (maxLeft - minLeft)));
-    
-    nameDiv.style.top = `${safeTop}px`;
-    nameDiv.style.left = `${safeLeft}px`;
+const headerHeight = 80;
+const controlsHeight = 20;
+const progressWidth = 200;
+const margin = 30;
 
-    container.appendChild(nameDiv);
-    nameElementsOnScreen.push(nameDiv);
+const viewportWidth = window.innerWidth;
+const viewportHeight = window.innerHeight;
+
+const minTop = headerHeight;
+const maxTop = viewportHeight - controlsHeight - 30;
+const minLeft = margin;
+const maxLeft = viewportWidth - progressWidth - margin;
+
+const safeTop = Math.max(minTop, Math.min(maxTop, minTop + Math.random() * (maxTop - minTop)));
+const safeLeft = Math.max(minLeft, Math.min(maxLeft, minLeft + Math.random() * (maxLeft - minLeft)));
+
+nameDiv.style.top = `${safeTop}px`;
+nameDiv.style.left = `${safeLeft}px`;
+
+container.appendChild(nameDiv);
+nameElementsOnScreen.push(nameDiv);
 }
 
 /**
 * Shuffles an array using Fisher-Yates algorithm
 */
 function shuffleArray(array) {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
+const shuffled = [...array];
+for (let i = shuffled.length - 1; i > 0; i--) {
+const j = Math.floor(Math.random() * (i + 1));
+[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+}
+return shuffled;
 }
 
 /**
 * Resets the board and starts a new cycle.
 */
 function startNewCycle() {
-    // Clear the screen and reset state
-    container.innerHTML = '';
-    nameElementsOnScreen = [];
-    redactionCount = 0;
+if (animationInterval) {
+clearInterval(animationInterval);
+}
 
-    // Shuffle names and take up to 100 for display
-    const shuffledNames = shuffleArray(names);
-    const namesToAdd = shuffledNames.slice(0, Math.min(100, shuffledNames.length));
-    totalCount = namesToAdd.length;
-    
-    // Stagger the appearance of names slightly
-    namesToAdd.forEach((name, index) => {
-        setTimeout(() => addName(name), index * 50);
-    });
-    
-    updateProgress();
+container.innerHTML = '';
+nameElementsOnScreen = [];
+redactionCount = 0;
+
+const shuffledNames = shuffleArray(names);
+const namesToAdd = shuffledNames.slice(0, Math.min(100, shuffledNames.length));
+totalCount = namesToAdd.length;
+
+namesToAdd.forEach((name, index) => {
+setTimeout(() => addName(name), index * 50);
+});
+
+updateProgress();
+
+animationInterval = setInterval(cycleManager, 10000); // Redact a name every 10 seconds
 }
 
 /**
 * Finds a random un-redacted name and redacts it permanently.
 */
 function redactOneName() {
-    if (isPaused) return;
-    
-    const availableElements = nameElementsOnScreen.filter(el => !el.classList.contains('redacted'));
-    if (availableElements.length === 0) return;
+const availableElements = nameElementsOnScreen.filter(el => !el.classList.contains('redacted'));
+if (availableElements.length === 0) {
+clearInterval(animationInterval);
+return;
+}
 
-    const randomIndex = Math.floor(Math.random() * availableElements.length);
-    const elementToRedact = availableElements[randomIndex];
+const randomIndex = Math.floor(Math.random() * availableElements.length);
+const elementToRedact = availableElements[randomIndex];
 
-    // Redaction color is always black in this version.
-    const redactionColor = 'black';
+elementToRedact.classList.add('redacted');
+const redactionColor = 'black';
+const rect = elementToRedact.querySelector('.name-text').getBoundingClientRect();
 
-    const rect = elementToRedact.querySelector('.name-text').getBoundingClientRect();
-    const scribble = createScribble(rect.width, rect.height, redactionColor);
-    elementToRedact.appendChild(scribble);
+// Add both horizontal and vertical padding to the SVG container
+const horizontalPadding = 20; // 10px on each side
+const verticalPadding = 10; // 5px on top/bottom
 
-    elementToRedact.classList.add('redacted');
-    redactionCount++;
-    updateProgress();
+const scribbleWidth = rect.width + horizontalPadding;
+const scribbleHeight = rect.height + verticalPadding;
+
+// Create the scribble with the new padded dimensions for its viewBox
+const scribble = createScribble(scribbleWidth, scribbleHeight, redactionColor);
+
+// Position the larger SVG container so it's centered over the text, allowing overflow
+scribble.style.left = `-${horizontalPadding / 2}px`;
+scribble.style.top = `-${verticalPadding / 2}px`;
+scribble.style.width = `${scribbleWidth}px`;
+scribble.style.height = `${scribbleHeight}px`;
+
+elementToRedact.appendChild(scribble);
+
+// Animate each path in the scribble to "draw" it on screen
+const paths = scribble.querySelectorAll('path');
+paths.forEach((path, index) => {
+const length = path.getTotalLength();
+path.style.strokeDasharray = length;
+path.style.strokeDashoffset = length;
+path.style.animation = `draw-scribble 0.4s linear forwards ${index * 0.08}s`;
+});
+
+redactionCount++;
+updateProgress();
 }
 
 /**
 * The main cycle function that manages redaction and resets.
 */
 function cycleManager() {
-    // Check if we have completed a full cycle of redactions.
-    if (redactionCount >= totalCount) {
-        // If so, start a new cycle after a brief pause
-        setTimeout(() => startNewCycle(), 2000);
-    } else {
-        // Otherwise, redact one more name.
-        redactOneName();
-    }
+if (redactionCount >= totalCount && totalCount > 0) {
+clearInterval(animationInterval);
+setTimeout(startNewCycle, 2000);
+} else {
+redactOneName();
 }
-
-/**
-* Toggles pause/resume functionality
-*/
-function togglePause() {
-    isPaused = !isPaused;
-    const btn = document.getElementById('pause-btn');
-    btn.textContent = isPaused ? 'Resume' : 'Pause';
-    btn.style.background = isPaused ? '#c53030' : '#333';
-}
-
-/**
-* Resets the current cycle
-*/
-function resetCycle() {
-    startNewCycle();
-}
-
-/**
-* Cycles through speed modes
-*/
-function toggleSpeed() {
-    const speedKeys = Object.keys(speeds);
-    const currentIndex = speedKeys.indexOf(speedMode);
-    const nextIndex = (currentIndex + 1) % speedKeys.length;
-    speedMode = speedKeys[nextIndex];
-    currentSpeed = speeds[speedMode];
-    
-    document.getElementById('speed-btn').textContent = `Speed: ${speedMode}`;
-    
-    // Restart the interval with new speed
-    clearInterval(intervalId);
-    intervalId = setInterval(cycleManager, currentSpeed);
 }
 
 // Error handling for edge cases
 function handleError(error) {
-    console.error('Application error:', error);
-    // Could add user-visible error handling here
+console.error('Application error:', error);
 }
 
 // Initialize the application
 try {
-    startNewCycle();
-    intervalId = setInterval(cycleManager, currentSpeed);
+startNewCycle();
 } catch (error) {
-    handleError(error);
+handleError(error);
 }
 
 // Handle window resize
 window.addEventListener('resize', () => {
-    // Reposition names that might now be off-screen
-    nameElementsOnScreen.forEach(nameDiv => {
-        const rect = nameDiv.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-            nameDiv.style.left = `${Math.max(20, window.innerWidth - rect.width - 20)}px`;
-        }
-        if (rect.bottom > window.innerHeight) {
-            nameDiv.style.top = `${Math.max(80, window.innerHeight - rect.height - 60)}px`;
-        }
-    });
+nameElementsOnScreen.forEach(nameDiv => {
+const rect = nameDiv.getBoundingClientRect();
+if (rect.right > window.innerWidth) {
+nameDiv.style.left = `${Math.max(20, window.innerWidth - rect.width - 20)}px`;
+}
+if (rect.bottom > window.innerHeight) {
+nameDiv.style.top = `${Math.max(80, window.innerHeight - rect.height - 60)}px`;
+}
+});
 });
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
-    clearInterval(intervalId);
+if (animationInterval) {
+clearInterval(animationInterval);
+}
 });
 
 </script>
 
 </body>
 </html>
+
